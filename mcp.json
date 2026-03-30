@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "imaging": {
+      "url": "https://presales-in.castsoftware.com/mcp",
+      "headers": {
+        "x-api-key": "${input:imaging-key}"
+      }
+    }
+  }
+}
