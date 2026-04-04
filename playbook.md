@@ -4,6 +4,11 @@ Welcome to the internal developer guide for the Archaion Analyzer. This document
 
 *(If you are just looking for instructions on how to install and run the app, please read the `README.md` file instead).*
 
+## 🔗 References
+- Docker Hub Image: https://hub.docker.com/r/theabhisheksinha/archaion-analyzer
+- GitHub Repository: https://github.com/theabhisheksinha/Archaion
+- Agentic Workflow Guide: `agentic_workflow.md`
+
 ---
 
 ## 🏛 Architecture Overview
