@@ -129,6 +129,82 @@ Archaion defaults to taking credentials securely from the UI. However, if you pr
 
 ---
 
+## 🐳 Docker Image Overview
+
+### What the Docker Image Contains
+The Docker image is a single-container deployment of Archaion:
+- **FastAPI backend** serving API endpoints and the static frontend from `/`
+- **Frontend assets** copied into the image under `app/frontend/`
+- **Uvicorn** as the process entrypoint
+- **No database** and no persistent storage
+
+The application listens on **port 9999** inside the container.
+
+### How Credentials Work in Docker
+Archaion supports two sources of configuration:
+- **Primary (recommended): UI Settings in the browser** (stored in browser `localStorage`, sent to backend via headers/payload)
+- **Fallback: environment variables** (for headless usage, automation, or default values)
+
+UI always takes priority if values are provided.
+
+### Run from the Published Image (Docker Hub)
+```bash
+docker pull theabhisheksinha/archaion-analyzer:latest
+docker run --rm -p 9999:9999 --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
+```
+
+### Run with `.env` Fallback Defaults
+```bash
+docker run --rm -p 9999:9999 --env-file .env --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
+```
+
+### Run via Docker Compose (Source Repository)
+This repository ships a `docker-compose.yml` that:
+- Maps host port `9999` → container port `9999`
+- Loads optional defaults from `.env` via `env_file`
+- Enables Docker-native log rotation
+
+Start:
+```bash
+docker-compose up --build -d
+```
+
+Stop:
+```bash
+docker-compose down
+```
+
+### Logs (Best Practice)
+Archaion logs to stdout/stderr. Docker captures these logs.
+- View logs:
+```bash
+docker logs -f archaion-analyzer
+```
+
+The compose file configures Docker log rotation using the `json-file` driver options:
+- `max-size: 10m`
+- `max-file: 3`
+
+This prevents unbounded growth and avoids disk pressure.
+
+---
+
+## 🏷️ Docker Tagging Strategy (Publisher Guide)
+
+When publishing to Docker Hub, use immutable version tags and a stable pointer tag:
+- **Immutable release**: `theabhisheksinha/archaion-analyzer:0.1.0`
+- **Stable pointer**: `theabhisheksinha/archaion-analyzer:latest`
+- **Optional rolling minor**: `theabhisheksinha/archaion-analyzer:0.1`
+
+Example publish commands:
+```bash
+docker build -t theabhisheksinha/archaion-analyzer:0.1.0 .
+docker push theabhisheksinha/archaion-analyzer:0.1.0
+
+docker tag theabhisheksinha/archaion-analyzer:0.1.0 theabhisheksinha/archaion-analyzer:latest
+docker push theabhisheksinha/archaion-analyzer:latest
+```
+
 ## 📦 File Structure
 
 ```text
