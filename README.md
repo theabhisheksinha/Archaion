@@ -28,6 +28,45 @@ Before using this software, please read the [LICENSE.md](LICENSE.md).
 
 ---
 
+## 🖼 Screenshots
+
+<div align="center">
+  <p><strong>Portfolio (Application Selection)</strong></p>
+  <img src="app/images/Archaion%20-1.png" alt="Archaion - Portfolio" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Application Technical Profile (DNA)</strong></p>
+  <img src="app/images/Archaion%20-2.png" alt="Archaion - Application Technical Profile" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Define Your Modernization Scope</strong></p>
+  <img src="app/images/Archaion%20-3.png" alt="Archaion - Define Your Modernization Scope" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Mission Status (Agentic Execution)</strong></p>
+  <img src="app/images/Archaion%20-4.png" alt="Archaion - Mission Status" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Modernization Report</strong></p>
+  <img src="app/images/Archaion%20-5.png" alt="Archaion - Modernization Report" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Modernization Report (Detailed Output)</strong></p>
+  <img src="app/images/Archaion%20-6.png" alt="Archaion - Modernization Report Detail" width="900">
+</div>
+
+<div align="center">
+  <p><strong>Full Page View</strong></p>
+  <img src="app/images/Archaion%20-%207.png" alt="Archaion - Full Page View" width="900">
+</div>
+
+---
+
 ## 🏗 Architecture at a Glance
 
 ```mermaid
