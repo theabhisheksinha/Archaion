@@ -1,0 +1,6 @@
+mcp_tool:
+  description: "A tool that interacts with the CAST Imaging MCP server to retrieve technical metadata and flaws."
+  parameters:
+    - name: "app_id"
+      type: "string"
+      description: "The ID of the application to query"

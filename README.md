@@ -1,6 +1,6 @@
 # Archaion Analyzer
 
-**Archaion Analyzer** is a standalone, AI-powered application designed to help developers and architects evaluate legacy software. It connects to a **CAST Imaging MCP (Model Context Protocol) Server** to pull detailed statistics about applications (like how many lines of code they have, what languages they use, and if they contain sensitive data), and then uses **Artificial Intelligence (LLMs like OpenAI, Google Gemini, or OpenRouter)** to automatically generate modernization plans and cloud strategy recommendations.
+**Archaion Analyzer** is the **first agentic application** powered by the **CAST Imaging MCP (Model Context Protocol)**. It is a standalone, AI-driven platform designed to help developers and architects evaluate legacy software. It connects to the CAST MCP Server to pull detailed architectural statistics (like lines of code, element types, and sensitive data detection), and orchestrates **Artificial Intelligence (LLMs like OpenAI, Google Gemini, or OpenRouter via CrewAI)** to autonomously generate comprehensive modernization plans and cloud strategy recommendations.
 
 ---
 
@@ -12,9 +12,43 @@ Before using this software, please read the [LICENSE.md](LICENSE.md).
 ---
 
 ## 🌟 Key Features
-- **Standalone Design:** Everything runs on a single server (Port 8000). The visual user interface (frontend) and the data engine (backend) are bundled together.
+- **Standalone Design:** Everything runs on a single server (Port **9999**). The visual user interface (frontend) and the data engine (backend) are bundled together.
 - **No Coding Required:** You do not need to edit any code or `.env` files to connect your tools. The application has a "Settings" button right on the web page where you can safely paste your CAST MCP connection details and your AI keys.
 - **Privacy-First:** Your API keys are saved locally in your own browser. The server does not permanently store them, meaning you can safely deploy this tool for your team to use with their own personal keys.
+- **Docker-Ready with Log Management:** The Docker setup natively handles log rotation to ensure your host machine never runs out of space.
+
+---
+
+## 🏗 Architecture at a Glance
+
+```mermaid
+flowchart LR
+    User([User / Architect]) -->|Accesses Port 9999| UI[Frontend UI\nHTML/CSS/JS]
+    UI -->|Saves Credentials| Storage[(Browser localStorage)]
+    UI -->|API Requests + Headers| Backend[Backend\nFastAPI Server]
+    Backend -->|MCP Tool Invocation| MCP[CAST MCP Server]
+    Backend -->|Orchestrates| CrewAI[CrewAI Flow Engine]
+    CrewAI -->|Agentic Prompts| LLM[LLM Providers\nOpenRouter/OpenAI/Gemini]
+```
+
+*(For a deep-dive into the technical architecture and component breakdown, please refer to the `playbook.md` file.)*
+
+---
+
+## 📋 Essential Prerequisites
+To use Archaion Analyzer, you must bring your own connection details for two external services. The application acts as a bridge between them but does not provide them for you:
+
+### 1. CAST Software MCP
+You must have an active connection to a **CAST Imaging MCP Server**.
+- **Version Compatibility:** Archaion requires CAST MCP **v3 or higher**.
+- **Credentials:** You will need your organization's specific MCP Server URL and your personal `X-API-KEY` provided by CAST Software.
+
+### 2. Artificial Intelligence (LLM) API Key
+Archaion uses generative AI to analyze the architectural statistics and generate the final modernization report. You must provide an API Key from one of the following supported AI providers:
+- **OpenAI** (Uses the `gpt-4o` model)
+- **Azure AI** (Uses the `azure/gpt-4o` model; requires your Azure endpoint and deployment name configuration)
+- **Google Gemini** (Uses the `gemini-1.5-pro` model)
+- **OpenRouter** (Uses the `gemini-2.5-flash` model for high-speed routing)
 
 ---
 
@@ -31,14 +65,15 @@ Docker packages the application so you don't have to worry about installing the 
 **Steps:**
 1. Open your computer's terminal (Command Prompt/PowerShell on Windows, or Terminal on Mac/Linux).
 2. Navigate to the Archaion project folder.
-3. Run the following command:
+3. *(Optional)* If you want to hardcode environment variables instead of using the UI, copy `.env.example` to `.env` and fill in your details.
+4. Run the following command:
    ```bash
-   docker-compose up --build
+   docker-compose up --build -d
    ```
-4. Wait a minute for it to finish setting up.
-5. Open your web browser and go to: `http://localhost:8000`
+5. Wait a minute for it to finish setting up.
+6. Open your web browser and go to: `http://localhost:9999`
 
-To stop the application, just press `CTRL + C` in the terminal, or run `docker-compose down`.
+To stop the application, run `docker-compose down`.
 
 ---
 
@@ -70,9 +105,9 @@ If you prefer not to use Docker, you can run the application directly using Pyth
    ```
 6. Start the application:
    ```powershell
-   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 8000
+   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999
    ```
-7. Open your web browser and go to: `http://localhost:8000`
+7. Open your web browser and go to: `http://localhost:9999`
 
 #### 🍎 Instructions for macOS and Linux:
 1. Open the **Terminal**.
@@ -94,16 +129,16 @@ If you prefer not to use Docker, you can run the application directly using Pyth
    ```
 6. Start the application:
    ```bash
-   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 8000
+   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999
    ```
-7. Open your web browser and go to: `http://localhost:8000`
+7. Open your web browser and go to: `http://localhost:9999`
 
 ---
 
 ## ⚙️ How to Use the Application
 
-Once you have opened `http://localhost:8000` in your web browser:
-1. Click the **"⚙ SETTINGS"** button in the top right corner.
+Once you have opened `http://localhost:9999` in your web browser:
+1. Click the **"⚙" (Gear Icon)** button in the top right corner.
 2. Enter your **CAST MCP URL** (e.g., `http://your-company.castsoftware.com/mcp`).
 3. Enter your **CAST MCP X-API-KEY**.
 4. Select your preferred **LLM Provider** from the dropdown menu (e.g., OpenRouter, OpenAI, Google Gemini).

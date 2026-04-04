@@ -22,8 +22,9 @@ load_dotenv()
 CAST_MCP_URL = os.getenv("CAST_MCP_URL", "http://localhost:8000")
 CAST_X_API_KEY = os.getenv("CAST_X_API_KEY", "default_key")
 
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("archaion.backend")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class MCPServerHTTP:
     def __init__(self, base_url: str, api_key: str):
@@ -143,7 +144,11 @@ def parse_mcp_response(res):
 @app.get("/applications")
 async def get_applications(request: Request):
     mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
-    mcp_key = request.headers.get("x-mcp-key") or CAST_X_API_KEY
+    mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
+    
+    source = "UI Settings Header" if request.headers.get("x-mcp-url") else "Environment Variables (.env)"
+    logger.debug(f"[CONFIG TRACE] Fetching applications using CAST MCP URL: {mcp_url} (Source: {source})")
+    
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
@@ -156,10 +161,14 @@ async def get_applications(request: Request):
     finally:
         await mcp.aclose()
 
+@app.get("/config")
+async def get_config():
+    return {"default_mcp_url": CAST_MCP_URL}
+
 @app.get("/dna")
 async def get_dna(request: Request, app_id: str = Query(...)):
     mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
-    mcp_key = request.headers.get("x-mcp-key") or CAST_X_API_KEY
+    mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
@@ -272,4 +281,4 @@ if __name__ == "__main__":
     import sys
     import os
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-    uvicorn.run("app.backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.backend.main:app", host="0.0.0.0", port=9999, reload=True)

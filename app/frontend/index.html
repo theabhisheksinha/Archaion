@@ -4,19 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Archaion Analyzer</title>
+    <!-- Modern rounded geometric tech fonts compatible with Archaion logo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="cyber-bg"></div>
+    <canvas id="bg-canvas"></canvas>
     <div class="container">
         <header class="header-bar">
-            <div>
-                <h1 class="neon-cyan">Archaion Analyzer</h1>
-                <p>Portfolio DNA + cloud strategy recommendations</p>
+            <div class="logo-container">
+                <img src="assets/Archaion.png" alt="Archaion Logo" class="app-logo">
+                <div class="logo-text-group">
+                    <p class="tagline-main">The Agentic Modernization platform</p>
+                    <p class="tagline-sub">powered by CAST Imaging MCP</p>
+                </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <p class="api-label">API: http://127.0.0.1:8000</p>
-                <button id="settings-btn" class="glow-btn" style="padding: 0.4rem 1rem; font-size: 0.8rem;">⚙ Settings</button>
+            <div class="header-actions">
+                <p class="api-label" id="mcp-label">Connected CAST MCP: Loading...</p>
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="gear-icon"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
             </div>
         </header>
 
@@ -48,16 +58,15 @@
             </div>
         </div>
 
-        <div class="glass-panel status-bar">
-            <p id="status-text">Loading applications...</p>
-        </div>
-
         <main class="stack-layout">
             <!-- 1. Portfolio -->
-            <section class="glass-panel">
-                <div class="panel-header">
-                    <h2>Portfolio</h2>
-                    <p>Select an application</p>
+            <section class="glass-panel" id="portfolio-section">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div>
+                        <h2>Portfolio</h2>
+                        <p>Select an application</p>
+                    </div>
+                    <p id="status-text" style="font-size: 0.9rem; color: #a39eb8; margin-bottom: 1rem;">Loading...</p>
                 </div>
                 <div class="app-list-container">
                     <fieldset class="radio-group" id="app-list">
@@ -140,13 +149,20 @@
             </section>
             
             <!-- 5. Modernization Report -->
-            <section class="glass-panel hidden" id="report-section" style="margin-bottom: 0;">
-                <h2 class="neon-rose">Modernization Report</h2>
-                <div id="report-content" class="markdown-body"></div>
-                <button id="download-btn" class="glow-btn mt-10">Download DOCX</button>
-            </section>
-        </main>
-    </div>
-    <script src="main.js"></script>
+        <section class="glass-panel hidden" id="report-section" style="margin-bottom: 0;">
+            <h2 class="neon-rose">Modernization Report</h2>
+            <div id="report-content" class="markdown-body"></div>
+            <button id="download-btn" class="glow-btn mt-10">Download DOCX</button>
+        </section>
+
+        <!-- Copyright Footer -->
+        <footer class="app-footer">
+            <p>&copy; 2026 Abhishek Sinha. All rights reserved.</p>
+            <p>Commercial or non-commercial distribution, modification, or reproduction requires explicit prior written approval.</p>
+            <p>Contact: <a href="mailto:iam@theabhisheksinha.com">iam@theabhisheksinha.com</a></p>
+        </footer>
+    </main>
+</div>
+<script src="main.js"></script>
 </body>
 </html>

@@ -1,0 +1,28 @@
+decomposition_task:
+  description: >
+    Analyze the provided Application Technical DNA Profile:
+    {dna_profile}
+    
+    Mission Parameters:
+    Goal: {goal}
+    Target Framework: {target_framework}
+    Compliance: {compliance}
+    Risk Profile: {risk_profile}
+    Refactoring Depth: {refactoring_depth}
+
+    Based on the profile and parameters, generate a comprehensive Modernization Plan in Markdown.
+    Include Executive Summary, Architecture Insights, and a Modernization Roadmap.
+  expected_output: >
+    A detailed Modernization Plan formatted in Markdown.
+  agent: micro2mono_agent
+
+validation_task:
+  description: >
+    Review the proposed Modernization Plan.
+    Also, consider any existing ISO 5055 flaws retrieved from the CAST MCP server:
+    {iso_5055_flaws}
+
+    Ensure the proposed architecture mitigates these flaws and adheres strictly to ISO 5055 standards.
+  expected_output: >
+    A brief 'ISO 5055 Quality Checks' section in Markdown appended to the main report or as a separate validation report.
+  agent: validator_agent

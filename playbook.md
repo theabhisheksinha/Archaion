@@ -19,7 +19,7 @@ Archaion is a **Stateless, Standalone Monolith** running entirely on Python.
 1. The user opens `http://localhost:8000`.
 2. The browser loads `index.html` and `main.js`.
 3. The JavaScript fetches the user's stored keys from `localStorage`.
-4. `main.js` sends an HTTP GET request to the backend (`/applications`), passing the user's CAST MCP URL and API key inside the HTTP headers (`x-mcp-url` and `x-mcp-key`).
+4. `main.js` sends an HTTP GET request to the backend (`/applications`), passing the user's CAST MCP URL and API key inside the HTTP headers (`x-mcp-url` and `x-api-key`).
 5. The Python FastAPI backend receives the request, reads the headers, and securely forwards the request to the CAST MCP Server.
 6. The CAST MCP Server returns a deeply nested JSON string.
 7. The Python backend safely sanitizes the string and passes it back to the frontend.
@@ -55,6 +55,15 @@ Archaion is a **Stateless, Standalone Monolith** running entirely on Python.
 ### 5. LLM Call Fails during "Initialize Agents"
 - **Issue**: The selected LLM Provider and API key combination is invalid.
 - **Solution**: Open the Settings UI. If you chose "OpenAI", ensure you pasted an OpenAI key (starting with `sk-...`). If you chose "Google Gemini", ensure it is a valid Gemini key. 
+
+---
+
+## Using Environment Variables (Optional)
+
+Archaion defaults to taking credentials securely from the UI. However, if you prefer using environment variables:
+1. Copy `.env.example` to `.env`.
+2. Fill in your default keys (e.g., `CAST_X_API_KEY`, `OPENROUTER_API_KEY`).
+3. Start the application locally or via `docker-compose up`. The app will automatically fall back to these `.env` values if the user leaves the UI Settings blank.
 
 ---
 

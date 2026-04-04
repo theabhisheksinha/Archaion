@@ -5,10 +5,12 @@ services:
     build: .
     container_name: archaion-analyzer
     ports:
-      - "8000:8000"
-    environment:
-      # These act as fallback default ENV variables. Users can also provide them directly through the UI.
-      - CAST_MCP_URL=http://host.docker.internal:8000
-      - CAST_X_API_KEY=default_key
-      - OPENROUTER_API_KEY=your_key_here
+      - "9999:9999"
+    env_file:
+      - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped

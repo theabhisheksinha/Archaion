@@ -1,9 +1,10 @@
 # Archaion Analyzer Custom License
 
-Copyright (c) 2024. All Rights Reserved.
+Copyright &copy; 2026 Abhishek Sinha. All Rights Reserved.
+Contact: iam@theabhisheksinha.com
 
 ## 1. Attribution & Credit
-Any use, modification, or reproduction of this software must clearly and visibly provide credit to the original author. You may not remove or obscure any copyright notices or author attributions from the source code or the user interface.
+Any commercial use, modification, or reproduction of this software must clearly and visibly provide credit to the original author. You may not remove or obscure any copyright notices or author attributions from the source code or the user interface.
 
 ## 2. Permissions & Distribution
 This software is provided for personal, educational, and internal evaluation purposes. 

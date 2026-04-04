@@ -15,12 +15,112 @@ function getAuthHeaders() {
     const s = getSettings();
     const headers = {};
     if (s.mcp_url) headers['x-mcp-url'] = s.mcp_url;
-    if (s.mcp_key) headers['x-mcp-key'] = s.mcp_key;
+    if (s.mcp_key) headers['x-api-key'] = s.mcp_key;
     return headers;
 }
 
+async function updateMCPLabel() {
+    let mcpUrl = localStorage.getItem('cfg_mcp_url');
+    if (!mcpUrl) {
+        try {
+            const res = await fetch(`${API_BASE}/config`);
+            if (res.ok) {
+                const data = await res.json();
+                mcpUrl = data.default_mcp_url;
+            }
+        } catch(e) {}
+    }
+    document.getElementById("mcp-label").textContent = `Connected CAST MCP: ${mcpUrl || 'Unknown'}`;
+}
+
+// --- Background Particle Animation ---
+function initBackgroundSparks() {
+    const canvas = document.getElementById("bg-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    
+    let width, height;
+    let particles = [];
+    const colors = ["#7c8cd4", "#a5b4fc", "#ffffff", "#818cf8"];
+    
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.size = Math.random() * 2 + 0.5;
+            this.speedX = (Math.random() - 0.5) * 0.5;
+            this.speedY = (Math.random() - 0.5) * 0.5;
+            this.color = colors[Math.floor(Math.random() * colors.length)];
+            this.opacity = Math.random() * 0.5 + 0.1;
+        }
+        update() {
+            this.x += this.speedX;
+            this.y += this.speedY;
+            if (this.x < 0) this.x = width;
+            if (this.x > width) this.x = 0;
+            if (this.y < 0) this.y = height;
+            if (this.y > height) this.y = 0;
+        }
+        draw() {
+            ctx.globalAlpha = this.opacity;
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    function initParticles() {
+        particles = [];
+        const numParticles = Math.floor((width * height) / 10000); // density
+        for (let i = 0; i < numParticles; i++) {
+            particles.push(new Particle());
+        }
+    }
+    initParticles();
+
+    function animate() {
+        ctx.clearRect(0, 0, width, height);
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+        
+        // Draw subtle connection lines
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i < particles.length; i++) {
+            for (let j = i; j < particles.length; j++) {
+                const dx = particles[i].x - particles[j].x;
+                const dy = particles[i].y - particles[j].y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < 100) {
+                    ctx.globalAlpha = (100 - distance) / 100 * 0.2;
+                    ctx.strokeStyle = particles[i].color;
+                    ctx.beginPath();
+                    ctx.moveTo(particles[i].x, particles[i].y);
+                    ctx.lineTo(particles[j].x, particles[j].y);
+                    ctx.stroke();
+                }
+            }
+        }
+        requestAnimationFrame(animate);
+    }
+    animate();
+}
+// -----------------------------------
+
 // Initialize
 document.addEventListener("DOMContentLoaded", async () => {
+    initBackgroundSparks();
+    updateMCPLabel();
+    
     // Settings Modal Logic
     const modal = document.getElementById("settings-modal");
     document.getElementById("settings-btn").onclick = () => {
@@ -39,6 +139,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         localStorage.setItem('cfg_llm_provider', document.getElementById("cfg_llm_provider").value);
         localStorage.setItem('cfg_llm_key', document.getElementById("cfg_llm_key").value.trim());
         modal.classList.add("hidden");
+        updateMCPLabel();
         loadApplications();
     };
 
