@@ -1,98 +1,77 @@
-# Archaion Playbook
+# Archaion Developer Playbook
 
-## Part 1: Local Setup (Windows 11)
-- Prerequisites
-  - Python 3.11 or 3.12
-  - PowerShell (with an execution policy permitting local scripts)
-  - Optional: Node.js (only needed for future Amplify work; not required for local run)
-- Environment
-  - Copy [.env.template](file:///c:/Personal-docs/Archaion/archaion/.env.template) to `c:\Personal-docs\Archaion\archaion\.env` and fill values:
-    - CAST_MCP_URL (example: https://presales-in.castsoftware.com/mcp)
-    - CAST_X_API_KEY
-    - Optional (required for /analyze to produce LLM-backed output):
-      - GEMINI_API_KEY and/or OPENROUTER_API_KEY
-  - Optional:
-    - CAST_TENANT (if your MCP tenant is not the default)
-    - MCP_OFFLINE=1 (force offline demo data)
-    - MCP_AUTO_OFFLINE_ON_FAILURE=1 (auto-fallback to offline when MCP is unreachable)
-- Initialize (one-time)
-  - PowerShell from the repo root:
-    - `cd c:\Personal-docs\Archaion\archaion`
-    - `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
-    - `.\setup_windows.ps1`
-  - What it does:
-    - Creates `venv\` and installs backend dependencies from [requirements.txt](file:///c:/Personal-docs/Archaion/archaion/amplify/functions/modernization-handler/requirements.txt)
-- Run (two processes)
-  - Start the backend (FastAPI):
-    - `cd c:\Personal-docs\Archaion\archaion`
-    - `python .\run_local.py`
-    - Validate:
-      - http://127.0.0.1:8000/health → `{"status":"ok"}`
-      - http://127.0.0.1:8000/applications → portfolio list
-  - Start the frontend (static server):
-    - `cd c:\Personal-docs\Archaion\archaion\src`
-    - `python -m http.server 5173 --bind 127.0.0.1`
-    - Open the UI:
-      - http://127.0.0.1:5173/
-- Use
-  - Portfolio loads from `/applications`
-  - Selecting an app calls `/dna?app_id=...` and shows key stats in “DNA Badge”
-  - Pick a Cloud Strategy and click Analyze to POST to `/analyze`
-  - Download exports Markdown (if present in the response), otherwise JSON
+Welcome to the internal developer guide for the Archaion Analyzer. This document covers how the architecture works, how to troubleshoot issues, and how to understand the data flow. 
 
-- Local Troubleshooting
-  - Python 3.13+ in venv
-    - This project expects Python 3.11/3.12. Delete `venv\` and re-run setup with Python 3.12 installed.
-  - Port 8000 already in use (WinError 10048)
-    - Find the process:
-      - `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object -ExpandProperty OwningProcess -Unique`
-    - Stop it:
-      - `Stop-Process -Id <PID> -Force`
-  - pip missing inside venv (ModuleNotFoundError: No module named 'pip')
-    - Run:
-      - .\venv\Scripts\python.exe -m ensurepip --upgrade
-      - .\setup_windows.ps1
-    - If it still fails:
-      - Delete the venv folder and re-run .\setup_windows.ps1
-  - MCP errors / 502 "Tool invocation failed"
-    - Confirm CAST_MCP_URL and CAST_X_API_KEY are set in `.env`
-    - Check MCP connectivity:
-      - http://127.0.0.1:8000/mcp/status
-      - http://127.0.0.1:8000/mcp/tools
-    - If you just need a demo without MCP:
-      - Set `MCP_OFFLINE=1` in `.env` and restart the backend
+*(If you are just looking for instructions on how to install and run the app, please read the `README.md` file instead).*
 
-## Part 2: AWS Amplify Gen 2 Deployment
-- Prerequisites
-  - AWS account and credentials configured locally
-  - Node.js LTS (recommended) and a package manager (npm, pnpm, or yarn)
-  - Amplify Gen 2 project scaffold (code-first)
-- Prepare the Backend Function
-  - Ensure the function definition exists: [resource.ts](file:///c:/Personal-docs/Archaion/archaion/amplify/functions/modernization-handler/resource.ts) exporting modernizationHandler.
-  - Verify Python entry point: [handler.py](file:///c:/Personal-docs/Archaion/archaion/amplify/functions/modernization-handler/handler.py) exposes handler(event, context) and hosts the FastAPI app.
-- Wire into Amplify Backend
-  - Add an Amplify backend definition file (commonly backend.ts) in your project that imports modernizationHandler and includes it in the backend resources.
-  - Install any required Amplify Gen 2 libraries in your project (e.g., @aws-amplify/backend).
-- Environment Variables
-  - In Amplify environment configuration (sandbox or deployed environment), set:
-    - CAST_MCP_URL
-    - CAST_X_API_KEY
-    - GEMINI_API_KEY
-    - OPENROUTER_API_KEY
-  - Do not store secrets in code; use environment management.
-- Bundle & Deploy
-  - The function bundling in [resource.ts](file:///c:/Personal-docs/Archaion/archaion/amplify/functions/modernization-handler/resource.ts) installs Python requirements and copies sources.
-  - Use Amplify Gen 2 commands to:
-    - Create/validate a sandbox environment for quick iteration.
-    - Deploy the backend to your AWS account when ready.
-  - Verify the Lambda endpoint and integrate with your frontend hosting strategy (Amplify Hosting, S3/CloudFront, etc., based on your project setup).
-- Post-Deployment Checks
-  - Confirm function routes:
-    - /health, /applications, /dna, /analyze
-  - Ensure CORS rules satisfy your hosted frontend origin (adjust middleware or API Gateway configuration if needed).
-  - Run a sample analysis from the hosted UI and validate the Markdown report.
-- Troubleshooting Tips
-  - Missing dependencies: confirm requirements.txt was installed during bundling; keep versions consistent with local dev.
-  - Authentication issues with MCP: verify X-API-KEY and base URL; check upstream reachability from Lambda VPC/network configuration if applicable.
-  - LLM fallback: ensure at least one of GEMINI_API_KEY or OPENROUTER_API_KEY is present in the environment.
-  - Large payloads: consider response size and enable compression or pagination if necessary.
+---
+
+## 🏛 Architecture Overview
+
+Archaion is a **Stateless, Standalone Monolith** running entirely on Python.
+
+- **Frontend (`app/frontend/`)**: Raw HTML, CSS (Glassmorphism design), and Vanilla JavaScript. It uses `localStorage` to securely save the user's API keys and Server URLs.
+- **Backend (`app/backend/`)**: A FastAPI server that handles HTTP requests and serves the static frontend files from the root `/` path. It listens on port `8000`.
+- **Flow Engine (`app/flows/`)**: Uses `litellm` to route the AI prompts. It is completely dynamic, supporting OpenAI, Azure, Google Gemini, and OpenRouter based on the user's frontend input.
+- **Integration (MCP)**: The backend acts as an HTTP client connecting to a remote CAST Imaging Model Context Protocol (MCP) server.
+
+### Data Flow Example
+1. The user opens `http://localhost:8000`.
+2. The browser loads `index.html` and `main.js`.
+3. The JavaScript fetches the user's stored keys from `localStorage`.
+4. `main.js` sends an HTTP GET request to the backend (`/applications`), passing the user's CAST MCP URL and API key inside the HTTP headers (`x-mcp-url` and `x-mcp-key`).
+5. The Python FastAPI backend receives the request, reads the headers, and securely forwards the request to the CAST MCP Server.
+6. The CAST MCP Server returns a deeply nested JSON string.
+7. The Python backend safely sanitizes the string and passes it back to the frontend.
+8. The frontend parses the JSON and populates the user interface dynamically.
+
+---
+
+## 🛠 Troubleshooting Common Issues
+
+### 1. "Failed to fetch" or Blank Screen
+- **Issue**: The frontend cannot reach the backend.
+- **Solution**: Ensure you are running the application using `uvicorn app.backend.main:app --host 0.0.0.0 --port 8000` (or using Docker). Archaion no longer uses a separate frontend port (`5173`). Everything runs on `8000`.
+
+### 2. "Port 8000 already in use"
+- **Issue**: Another application (or an old crashed Archaion server) is still running in the background.
+- **Solution (Windows)**:
+  1. Open PowerShell.
+  2. Find the hidden process: `netstat -ano | findstr :8000`
+  3. Look at the last number on the line (the PID).
+  4. Kill it: `taskkill /F /PID <PID_NUMBER>`
+- **Solution (Mac/Linux)**:
+  1. Find the process: `lsof -i :8000`
+  2. Kill it: `kill -9 <PID_NUMBER>`
+
+### 3. "No module named 'fastapi'"
+- **Issue**: You are not running the application inside the virtual environment where the dependencies were installed.
+- **Solution**: Make sure you have activated your virtual environment (`.\venv\Scripts\Activate.ps1` on Windows or `source venv/bin/activate` on Mac/Linux) before running the python command.
+
+### 4. Application List is Empty but No Errors Show
+- **Issue**: The CAST MCP credentials entered in the Settings UI are incorrect.
+- **Solution**: Click the "⚙ SETTINGS" button in the UI. Ensure the URL is correct (e.g., `https://presales-in.castsoftware.com/mcp`) and that there are no trailing slashes or hidden spaces in your API Key.
+
+### 5. LLM Call Fails during "Initialize Agents"
+- **Issue**: The selected LLM Provider and API key combination is invalid.
+- **Solution**: Open the Settings UI. If you chose "OpenAI", ensure you pasted an OpenAI key (starting with `sk-...`). If you chose "Google Gemini", ensure it is a valid Gemini key. 
+
+---
+
+## 📦 File Structure
+
+```text
+Archaion/
+├── app/
+│   ├── agents/          # YAML definitions for AI agent roles
+│   ├── backend/         # FastAPI server logic (main.py)
+│   ├── flows/           # CrewAI/LiteLLM execution states
+│   ├── frontend/        # HTML, CSS, JS static files
+│   ├── tasks/           # YAML definitions for AI tasks
+│   └── tools/           # Custom Python utilities (like the DOCX generator)
+├── docker-compose.yml   # Docker Compose orchestration
+├── Dockerfile           # Docker container build instructions
+├── LICENSE.md           # Legal usage requirements
+├── README.md            # User-facing installation guide
+└── requirements.txt     # Python package dependencies
+```
