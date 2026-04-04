@@ -15,3 +15,14 @@ __pycache__/
 dist/
 build/
 *.log
+node_modules/
+.next/
+.cache/
+*.DS_Store
+*.swp
+*.tmp
+*.bak
+*.map
+coverage/
+out/
+*.local

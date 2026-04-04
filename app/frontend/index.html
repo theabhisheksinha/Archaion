@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archaion Analyzer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="cyber-bg"></div>
+    <div class="container">
+        <header class="header-bar">
+            <div>
+                <h1 class="neon-cyan">Archaion Analyzer</h1>
+                <p>Portfolio DNA + cloud strategy recommendations</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <p class="api-label">API: http://127.0.0.1:8000</p>
+                <button id="settings-btn" class="glow-btn" style="padding: 0.4rem 1rem; font-size: 0.8rem;">⚙ Settings</button>
+            </div>
+        </header>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content glass-panel">
+                <span class="close-btn" id="close-settings">&times;</span>
+                <h2 style="margin-top:0;">Configuration</h2>
+                <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem;">
+                    <label>CAST MCP URL:</label>
+                    <input type="text" id="cfg_mcp_url" placeholder="e.g. http://localhost:8000">
+                    
+                    <label>CAST MCP X-API-KEY:</label>
+                    <input type="password" id="cfg_mcp_key" placeholder="Enter CAST MCP API Key">
+                    
+                    <label style="margin-top: 1rem;">LLM Provider:</label>
+                    <select id="cfg_llm_provider">
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="gemini">Google Gemini</option>
+                        <option value="azure">Azure AI</option>
+                    </select>
+                    
+                    <label>LLM API Key:</label>
+                    <input type="password" id="cfg_llm_key" placeholder="Enter LLM API Key">
+                    
+                    <button type="button" id="save-settings-btn" class="glow-btn mt-10">Save Configuration</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-panel status-bar">
+            <p id="status-text">Loading applications...</p>
+        </div>
+
+        <main class="stack-layout">
+            <!-- 1. Portfolio -->
+            <section class="glass-panel">
+                <div class="panel-header">
+                    <h2>Portfolio</h2>
+                    <p>Select an application</p>
+                </div>
+                <div class="app-list-container">
+                    <fieldset class="radio-group" id="app-list">
+                        <legend>Select an application</legend>
+                        <p style="padding: 1rem; color: #a39eb8;">Fetching from CAST MCP...</p>
+                    </fieldset>
+                </div>
+            </section>
+
+            <!-- 2. Application Technical Profile -->
+            <section class="glass-panel" id="dna-section">
+                <h2>Application Technical Profile</h2>
+                <div class="badge-container">
+                    <span class="badge" id="mf-badge"><span class="dot"></span> Mainframe tech: Not detected</span>
+                </div>
+                <div class="dna-box" id="dna-details">
+                    Select an application to view its DNA.
+                </div>
+            </section>
+
+            <!-- 3. Define your Modernization Scope -->
+            <section class="glass-panel hidden" id="mission-scoping">
+                <h2>Define your Modernization Scope</h2>
+                <form id="wizard-form">
+                    <div class="wizard-step active" id="step-1" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: end;">
+                        <div>
+                            <label>Modernization Goal:</label>
+                            <select id="goal" style="width: 100%;">
+                                <option value="decompose">Decompose Monolith</option>
+                                <option value="remediate">Remediate Tech Debt</option>
+                                <option value="migrate">Cloud Migration</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Target Framework:</label>
+                            <select id="target_framework" style="width: 100%;">
+                                <option value="spring-boot">Spring Boot</option>
+                                <option value="nodejs">Node.js</option>
+                                <option value="aws-lambda">AWS Lambda</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Compliance Standards:</label>
+                            <select id="compliance" style="width: 100%;">
+                                <option value="iso-5055">Strict ISO 5055</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Risk Profile:</label>
+                            <select id="risk_profile" style="width: 100%;">
+                                <option value="re-architect">High-Quality Re-architecting</option>
+                                <option value="re-host">High-Speed Re-host</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Refactoring Depth:</label>
+                            <input type="text" id="refactoring_depth" placeholder="e.g., split schema per service" value="split schema per service" required style="width: 100%;">
+                        </div>
+                        <div>
+                            <label>Review Protocol:</label>
+                            <select id="review_protocol" style="width: 100%;">
+                                <option value="human-in-loop">Human-in-the-loop</option>
+                                <option value="auto">Fully Autonomous</option>
+                            </select>
+                        </div>
+                        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
+                            <button type="submit" class="glow-btn" style="width: 100%;">Initialize Agents</button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+
+            <!-- 4. Mission Status -->
+            <section class="glass-panel hidden" id="live-dashboard">
+                <h2 class="neon-cyan">Mission Status <span class="blink">_</span></h2>
+                <div id="terminal" class="terminal-window">
+                    <p class="sys-msg">System ready. Awaiting mission parameters...</p>
+                </div>
+            </section>
+            
+            <!-- 5. Modernization Report -->
+            <section class="glass-panel hidden" id="report-section" style="margin-bottom: 0;">
+                <h2 class="neon-rose">Modernization Report</h2>
+                <div id="report-content" class="markdown-body"></div>
+                <button id="download-btn" class="glow-btn mt-10">Download DOCX</button>
+            </section>
+        </main>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>

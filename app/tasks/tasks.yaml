@@ -1,0 +1,15 @@
+discover_portfolio:
+  description: "Use the MCP server to list all applications and categorize them by tech stack."
+  expected_output: "A JSON list of applications with their basic metadata."
+
+profile_application:
+  description: "Extract architectural stats for {app_name}, including transaction count, LOC, and technology mix."
+  expected_output: "A detailed System Technical Profile."
+
+generate_mission:
+  description: "Analyze the profile for {app_name} and propose a microservices decomposition plan based on the 6 mission parameters: Goal: {goal}, Target Framework: {target_framework}, Compliance: {compliance}, Risk: {risk_profile}, Depth: {refactoring_depth}, Review: {review_protocol}."
+  expected_output: "A detailed Markdown report with refactoring recommendations."
+
+validate_iso5055:
+  description: "Fetch ISO 5055 flaws for {app_name} and ensure the proposed architecture mitigates these CWEs."
+  expected_output: "A validation summary appended to the report."

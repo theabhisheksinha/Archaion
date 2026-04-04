@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from fastapi import Body
 try:
     from crew import run_analysis
 except Exception:
@@ -492,6 +493,20 @@ def _is_error_only_list(items: list[Any]) -> bool:
 class AnalyzeRequest(BaseModel):
     app_id: str
     cloud_strategy: str
+
+class MissionProfile(BaseModel):
+    app_name: str
+    tech_stack: str
+    loc: int
+
+class MissionIntent(BaseModel):
+    pattern: str
+    target_cloud: Optional[str] = None
+    rewrite_mainframe: Optional[bool] = None
+
+class KickoffRequest(BaseModel):
+    profile: MissionProfile
+    intent: MissionIntent
 
 
 load_dotenv()
@@ -1080,6 +1095,57 @@ async def analyze(req: AnalyzeRequest):
         logger.exception(f"analyze error {req.app_id} {e}")
         raise
 
+@app.post("/kickoff")
+async def kickoff(req: Dict[str, Any] = Body(...)):
+    try:
+        p = None
+        i = None
+        app_name = ""
+        tech = ""
+        pattern = ""
+        target_cloud = ""
+        loc = 0
+        rewrite_flag = False
+
+        if isinstance(req, dict) and "profile" in req and "intent" in req:
+            prof = req.get("profile") or {}
+            intl = req.get("intent") or {}
+            app_name = str(prof.get("app_name") or "").strip()
+            tech = str(prof.get("tech_stack") or "").strip()
+            try:
+                loc = int(prof.get("loc") or 0)
+            except Exception:
+                loc = 0
+            pattern = str(intl.get("pattern") or "").strip()
+            target_cloud = str(intl.get("target_cloud") or "").strip()
+            rewrite_flag = bool(intl.get("rewrite_mainframe"))
+        elif isinstance(req, dict) and "app_dna" in req and "mission" in req:
+            dna = req.get("app_dna") or {}
+            ms = req.get("mission") or {}
+            app_name = str(dna.get("name") or "").strip()
+            is_mf = bool(dna.get("is_mainframe"))
+            interactions = int(dna.get("interactions") or 0)
+            tech = "Mainframe" if is_mf else "Mixed"
+            loc = int(dna.get("loc") or 0) if dna.get("loc") is not None else 0
+            pattern = str(ms.get("pattern") or "").strip()
+            rewrite_flag = bool(ms.get("rewrite_mainframe"))
+            target_cloud = str(ms.get("target_cloud") or ms.get("target_lang") or "").strip()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid payload format")
+
+        summary = f"# Modernization Mission for {app_name}\n\n- Tech Stack: {tech}\n- LOC: {loc:,}\n- Pattern: {pattern}\n" + (f"- Target Cloud: {target_cloud}\n" if target_cloud else "") + (f"- Rewrite Mainframe: {'Yes' if rewrite_flag else 'No'}\n" if i.rewrite_mainframe is not None else "")
+        arch = f"## Architecture Insights\n\n- Detected stack: {tech}\n- Observed size: {loc:,} LOC\n- Recommended trajectory: {pattern}\n"
+        roadmap = "## Modernization Roadmap\n\n1. Baseline system profile\n2. Establish service boundaries\n3. Data strategy alignment\n4. Platform/containerization where applicable\n5. Cloud migration sequence\n"
+        report_md = f"{summary}\n\n{arch}\n\n{roadmap}\n"
+        return {
+            "executive_summary": summary,
+            "architecture_insights": arch,
+            "modernization_roadmap": roadmap,
+            "report_md": report_md,
+        }
+    except Exception as e:
+        logger.exception(f"kickoff error {e}")
+        raise HTTPException(status_code=400, detail="Invalid MissionProfile")
 def handler(event, context):
     return {
         "statusCode": 200,
