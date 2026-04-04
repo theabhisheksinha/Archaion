@@ -66,6 +66,24 @@ Docker packages the application so you don't have to worry about installing the 
 **Requirements:**
 - Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
+#### Option A: Run the Published Docker Image (Docker Hub)
+If you want the simplest experience (no source build), use the published image:
+
+```bash
+docker pull theabhisheksinha/archaion-analyzer:latest
+docker run --rm -p 9999:9999 --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
+```
+
+Open your browser: `http://localhost:9999`
+
+**Optional environment variables (fallback defaults):**
+If you want to provide defaults via `.env` (UI Settings still take priority):
+
+```bash
+docker run --rm -p 9999:9999 --env-file .env --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
+```
+
+#### Option B: Build \& Run from Source (Docker Compose)
 **Steps:**
 1. Open your computer's terminal (Command Prompt/PowerShell on Windows, or Terminal on Mac/Linux).
 2. Navigate to the Archaion project folder.
@@ -78,6 +96,14 @@ Docker packages the application so you don't have to worry about installing the 
 6. Open your web browser and go to: `http://localhost:9999`
 
 To stop the application, run `docker-compose down`.
+
+---
+
+### 🏷️ Docker Image Tags
+Archaion follows a simple tagging strategy:
+- `latest`: Most recent stable release.
+- `0.1.0`: Immutable release tag (recommended for production pinning).
+- `0.1`: Optional rolling minor tag (points to the latest `0.1.x` release, if published).
 
 ---
 
