@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="app/images/Archaion%20with%20Punchline.png" alt="Archaion Analyzer" width="600">
+  <img src="app/images/Archaion%20-%20bright.png" alt="Archaion Analyzer" width="600">
 </div>
 
 # Archaion Analyzer
