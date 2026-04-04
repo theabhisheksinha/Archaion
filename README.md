@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="app/images/Archaion%20with%20Punchline.png" alt="Archaion Analyzer" width="600">
+</div>
+
 # Archaion Analyzer
 
 **Archaion Analyzer** is the **first agentic application** powered by the **CAST Imaging MCP (Model Context Protocol)**. It is a standalone, AI-driven platform designed to help developers and architects evaluate legacy software. It connects to the CAST MCP Server to pull detailed architectural statistics (like lines of code, element types, and sensitive data detection), and orchestrates **Artificial Intelligence (LLMs like OpenAI, Google Gemini, or OpenRouter via CrewAI)** to autonomously generate comprehensive modernization plans and cloud strategy recommendations.
