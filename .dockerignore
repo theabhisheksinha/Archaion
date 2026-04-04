@@ -1,14 +1,10 @@
 .git
-.gitignore
 .env
 .venv
+venv
 __pycache__
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 .pytest_cache
 .coverage
 htmlcov
-Dockerfile
-docker-compose.yml
-.dockerignore
+logs

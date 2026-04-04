@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 from app.flows.modernization_flow import ModernizationFlow, ModernizationState
 
 load_dotenv()
-CAST_MCP_URL = os.getenv("CAST_MCP_URL", "http://localhost:8000")
-CAST_X_API_KEY = os.getenv("CAST_X_API_KEY", "default_key")
+CAST_MCP_URL = os.getenv("CAST_MCP_URL", "")
+CAST_X_API_KEY = os.getenv("CAST_X_API_KEY", "")
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("archaion.backend")
@@ -68,21 +68,7 @@ class MCPServerHTTP:
             raise HTTPException(status_code=502, detail=str(e))
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    mcp = MCPServerHTTP(CAST_MCP_URL, CAST_X_API_KEY)
-    try:
-        await mcp.open()
-        app.state.mcp = mcp
-        logger.info("MCP Connected")
-    except Exception as e:
-        logger.error(f"MCP Connection failed: {e}")
-        app.state.mcp = None
-    yield
-    if getattr(app.state, "mcp", None):
-        await app.state.mcp.aclose()
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -114,7 +100,7 @@ flow_states = {}
 import json
 
 def parse_mcp_response(res):
-    print(f"parse_mcp_response called with type {type(res)}: {repr(res)[:200]}")
+    logger.debug(f"parse_mcp_response called with type {type(res)}: {repr(res)[:200]}")
     if isinstance(res, dict):
         content = res.get("content", [])
         if isinstance(content, list) and len(content) > 0:
@@ -148,6 +134,8 @@ async def get_applications(request: Request):
     
     source = "UI Settings Header" if request.headers.get("x-mcp-url") else "Environment Variables (.env)"
     logger.debug(f"[CONFIG TRACE] Fetching applications using CAST MCP URL: {mcp_url} (Source: {source})")
+    if not mcp_url or not mcp_key:
+        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables.")
     
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
@@ -157,7 +145,7 @@ async def get_applications(request: Request):
         return parsed
     except Exception as e:
         logger.error(f"Error fetching apps: {e}")
-        return []
+        raise HTTPException(status_code=502, detail=f"Failed to fetch applications from CAST MCP: {e}")
     finally:
         await mcp.aclose()
 
@@ -169,6 +157,8 @@ async def get_config():
 async def get_dna(request: Request, app_id: str = Query(...)):
     mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
+    if not mcp_url or not mcp_key:
+        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables.")
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
@@ -176,7 +166,7 @@ async def get_dna(request: Request, app_id: str = Query(...)):
         return parse_mcp_response(res)
     except Exception as e:
         logger.error(f"Error fetching DNA: {e}")
-        return {}
+        raise HTTPException(status_code=502, detail=f"Failed to fetch DNA from CAST MCP: {e}")
     finally:
         await mcp.aclose()
 
@@ -205,55 +195,63 @@ async def analyze_stream(request: Request, job_id: str):
         # Initialize and configure the flow
         mcp_url = req_data.get("mcp_url") or CAST_MCP_URL
         mcp_key = req_data.get("mcp_key") or CAST_X_API_KEY
+        if not mcp_url or not mcp_key:
+            yield {"event": "error", "data": "Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables."}
+            return
         mcp_client = MCPServerHTTP(mcp_url, mcp_key)
-        await mcp_client.open()
-        
-        flow = ModernizationFlow(mcp_client=mcp_client)
-        flow.state.selected_app_id = job_id
-        flow.state.mission_params = req_data
-        
-        # We start the flow manually for SSE stream
-        yield {"event": "message", "data": "Flow initialized."}
-        
-        # Discover
-        await flow.discover_portfolio()
-        for update in flow.state.status_updates:
-            yield {"event": "message", "data": update}
-            await asyncio.sleep(0.5)
-        flow.state.status_updates.clear()
-        
-        # Profile
-        await flow.profile_application()
-        for update in flow.state.status_updates:
-            yield {"event": "message", "data": update}
-            await asyncio.sleep(0.5)
-        flow.state.status_updates.clear()
-        
-        # Execute (LLM)
-        await flow.execute_mission()
-        for update in flow.state.status_updates:
-            yield {"event": "message", "data": update}
-            await asyncio.sleep(0.5)
-        flow.state.status_updates.clear()
-        
-        # Validate (LLM)
-        await flow.validate_iso5055()
-        for update in flow.state.status_updates:
-            yield {"event": "message", "data": update}
-            await asyncio.sleep(0.5)
-        flow.state.status_updates.clear()
-        
-        report = {
-            "executive_summary": flow.state.mission_report or "",
-            "architecture_insights": "",
-            "modernization_roadmap": "",
-            "iso_5055_flaws": flow.state.validation_report or ""
-        }
-        state["report"] = report
-        state["status"] = "completed"
-        
-        yield {"event": "complete", "data": json.dumps(report)}
-        await mcp_client.aclose()
+        try:
+            await mcp_client.open()
+            
+            flow = ModernizationFlow(mcp_client=mcp_client)
+            flow.state.selected_app_id = job_id
+            flow.state.mission_params = req_data
+            
+            # We start the flow manually for SSE stream
+            yield {"event": "message", "data": "Flow initialized."}
+            
+            # Discover
+            await flow.discover_portfolio()
+            for update in flow.state.status_updates:
+                yield {"event": "message", "data": update}
+                await asyncio.sleep(0.5)
+            flow.state.status_updates.clear()
+            
+            # Profile
+            await flow.profile_application()
+            for update in flow.state.status_updates:
+                yield {"event": "message", "data": update}
+                await asyncio.sleep(0.5)
+            flow.state.status_updates.clear()
+            
+            # Execute (LLM)
+            await flow.execute_mission()
+            for update in flow.state.status_updates:
+                yield {"event": "message", "data": update}
+                await asyncio.sleep(0.5)
+            flow.state.status_updates.clear()
+            
+            # Validate (LLM)
+            await flow.validate_iso5055()
+            for update in flow.state.status_updates:
+                yield {"event": "message", "data": update}
+                await asyncio.sleep(0.5)
+            flow.state.status_updates.clear()
+            
+            report = {
+                "executive_summary": flow.state.mission_report or "",
+                "architecture_insights": "",
+                "modernization_roadmap": "",
+                "iso_5055_flaws": flow.state.validation_report or ""
+            }
+            state["report"] = report
+            state["status"] = "completed"
+            
+            yield {"event": "complete", "data": json.dumps(report)}
+        except Exception as e:
+            logger.exception("Analyze stream failed")
+            yield {"event": "error", "data": f"Analyze stream failed: {e}"}
+        finally:
+            await mcp_client.aclose()
         
     return EventSourceResponse(event_generator())
 
