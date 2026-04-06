@@ -39,80 +39,171 @@ function initBackgroundSparks() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     
-    let width, height;
-    let particles = [];
-    const colors = ["#7c8cd4", "#a5b4fc", "#ffffff", "#818cf8"];
-    
-    function resize() {
-        width = canvas.width = window.innerWidth;
-        height = canvas.height = window.innerHeight;
-    }
-    window.addEventListener("resize", resize);
-    resize();
+    let width = 0;
+    let height = 0;
+    let dpr = 1;
 
-    class Particle {
+    const nodeColors = ["#7c8cd4", "#a5b4fc", "#818cf8"];
+    const sparkColors = ["#ffffff", "#a5b4fc", "#7c8cd4"];
+
+    let nodes = [];
+    let sparks = [];
+
+    function resize() {
+        dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+        width = Math.floor(window.innerWidth);
+        height = Math.floor(window.innerHeight);
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        initNodes();
+    }
+
+    window.addEventListener("resize", resize);
+
+    class Node {
         constructor() {
             this.x = Math.random() * width;
             this.y = Math.random() * height;
-            this.size = Math.random() * 2 + 0.5;
-            this.speedX = (Math.random() - 0.5) * 0.5;
-            this.speedY = (Math.random() - 0.5) * 0.5;
-            this.color = colors[Math.floor(Math.random() * colors.length)];
-            this.opacity = Math.random() * 0.5 + 0.1;
+            this.r = Math.random() * 1.6 + 0.6;
+            this.vx = (Math.random() - 0.5) * 0.35;
+            this.vy = (Math.random() - 0.5) * 0.35;
+            this.c = nodeColors[(Math.random() * nodeColors.length) | 0];
+            this.p = Math.random() * Math.PI * 2;
         }
-        update() {
-            this.x += this.speedX;
-            this.y += this.speedY;
-            if (this.x < 0) this.x = width;
-            if (this.x > width) this.x = 0;
-            if (this.y < 0) this.y = height;
-            if (this.y > height) this.y = 0;
-        }
-        draw() {
-            ctx.globalAlpha = this.opacity;
-            ctx.fillStyle = this.color;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-            ctx.fill();
+
+        step() {
+            this.p += 0.02;
+            this.x += this.vx;
+            this.y += this.vy;
+
+            if (this.x < -20) this.x = width + 20;
+            if (this.x > width + 20) this.x = -20;
+            if (this.y < -20) this.y = height + 20;
+            if (this.y > height + 20) this.y = -20;
         }
     }
 
-    function initParticles() {
-        particles = [];
-        const numParticles = Math.floor((width * height) / 10000); // density
-        for (let i = 0; i < numParticles; i++) {
-            particles.push(new Particle());
+    class Spark {
+        constructor(x, y) {
+            const a = Math.random() * Math.PI * 2;
+            const s = 1.6 + Math.random() * 2.2;
+            this.x = x;
+            this.y = y;
+            this.vx = Math.cos(a) * s;
+            this.vy = Math.sin(a) * s;
+            this.life = 24 + ((Math.random() * 28) | 0);
+            this.maxLife = this.life;
+            this.size = 0.8 + Math.random() * 1.3;
+            this.c = sparkColors[(Math.random() * sparkColors.length) | 0];
+        }
+
+        step() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vx *= 0.985;
+            this.vy *= 0.985;
+            this.life -= 1;
         }
     }
-    initParticles();
+
+    function initNodes() {
+        const target = Math.max(60, Math.min(160, Math.floor((width * height) / 14000)));
+        nodes = [];
+        for (let i = 0; i < target; i++) nodes.push(new Node());
+        sparks = [];
+    }
+
+    function spawnSpark() {
+        const n = nodes[(Math.random() * nodes.length) | 0];
+        sparks.push(new Spark(n.x, n.y));
+    }
+
+    function drawNode(n) {
+        const pulse = 0.45 + 0.35 * Math.sin(n.p);
+        ctx.globalAlpha = 0.35 + pulse * 0.35;
+        ctx.fillStyle = n.c;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 0.08 + pulse * 0.06;
+        ctx.fillStyle = n.c;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * 6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawSpark(s) {
+        const t = Math.max(0, s.life / s.maxLife);
+        ctx.globalAlpha = 0.65 * t;
+        ctx.strokeStyle = s.c;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.vx * 2.5, s.y - s.vy * 2.5);
+        ctx.stroke();
+
+        ctx.globalAlpha = 0.8 * t;
+        ctx.fillStyle = s.c;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
 
     function animate() {
-        ctx.clearRect(0, 0, width, height);
-        particles.forEach(p => {
-            p.update();
-            p.draw();
-        });
-        
-        // Draw subtle connection lines
-        ctx.lineWidth = 0.5;
-        for (let i = 0; i < particles.length; i++) {
-            for (let j = i; j < particles.length; j++) {
-                const dx = particles[i].x - particles[j].x;
-                const dy = particles[i].y - particles[j].y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < 100) {
-                    ctx.globalAlpha = (100 - distance) / 100 * 0.2;
-                    ctx.strokeStyle = particles[i].color;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(10, 12, 26, 0.22)";
+        ctx.fillRect(0, 0, width, height);
+
+        for (const n of nodes) n.step();
+
+        const maxDist = 140;
+        const maxDist2 = maxDist * maxDist;
+
+        for (let i = 0; i < nodes.length; i++) {
+            const a = nodes[i];
+            for (let j = i + 1; j < nodes.length; j++) {
+                const b = nodes[j];
+                const dx = a.x - b.x;
+                const dy = a.y - b.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < maxDist2) {
+                    const d = Math.sqrt(d2);
+                    const alpha = (1 - d / maxDist) * 0.22;
+                    ctx.globalAlpha = alpha;
+                    ctx.lineWidth = 0.7;
+                    ctx.strokeStyle = a.c;
                     ctx.beginPath();
-                    ctx.moveTo(particles[i].x, particles[i].y);
-                    ctx.lineTo(particles[j].x, particles[j].y);
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
                     ctx.stroke();
                 }
             }
         }
+
+        for (const n of nodes) drawNode(n);
+
+        if (sparks.length < 48 && Math.random() < 0.18) spawnSpark();
+        const nextSparks = [];
+        for (const s of sparks) {
+            s.step();
+            if (s.life > 0) {
+                drawSpark(s);
+                nextSparks.push(s);
+            }
+        }
+        sparks = nextSparks;
+
         requestAnimationFrame(animate);
     }
-    animate();
+
+    resize();
+    ctx.fillStyle = "rgba(10, 12, 26, 1)";
+    ctx.fillRect(0, 0, width, height);
+    requestAnimationFrame(animate);
 }
 // -----------------------------------
 

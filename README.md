@@ -4,7 +4,7 @@
 
 # Archaion Analyzer
 
-**Archaion Analyzer** is the **first agentic application** powered by the **CAST Imaging MCP (Model Context Protocol)**. It is a standalone, AI-driven platform designed to help developers and architects evaluate legacy software. It connects to the CAST MCP Server to pull detailed architectural statistics (like lines of code, element types, and sensitive data detection), and orchestrates **Artificial Intelligence (LLMs like OpenAI, Google Gemini, or OpenRouter via CrewAI)** to autonomously generate comprehensive modernization plans and cloud strategy recommendations.
+**Archaion Analyzer** is the ** agentic application** powered by the **CAST Imaging MCP (Model Context Protocol)**. It is a standalone, AI-driven platform designed to help developers and architects evaluate legacy software. It connects to the CAST MCP Server to pull detailed architectural statistics (like lines of code, element types, and sensitive data detection), and orchestrates **Artificial Intelligence (LLMs like OpenAI, Google Gemini, or OpenRouter via CrewAI)** to autonomously generate comprehensive modernization plans and cloud strategy recommendations.
 
 ## 🔗 Links
 - Docker Hub Image: https://hub.docker.com/r/theabhisheksinha/archaion-analyzer
@@ -157,6 +157,7 @@ If you prefer not to use Docker, you can run the application directly using Pyth
 
 **Requirements for all systems:**
 - You must have **Python 3.11 or 3.12** installed on your computer.
+- Avoid Python **3.13/3.14** for local installs right now, because some dependencies may not have prebuilt wheels yet and can require Rust/Cargo compilation.
 
 #### 🪟 Instructions for Windows:
 1. Open **PowerShell**.
@@ -164,9 +165,14 @@ If you prefer not to use Docker, you can run the application directly using Pyth
    ```powershell
    cd C:\path\to\Archaion
    ```
-3. Create a virtual environment (this keeps the application files isolated from the rest of your computer):
+3. Confirm you have Python 3.11 or 3.12 available:
    ```powershell
-   python -m venv venv
+   py -0p
+   ```
+4. (Recommended) Create the virtual environment using Python 3.12 (or use `-3.11` if that's what you have installed):
+   ```powershell
+   Remove-Item -Recurse -Force .\venv
+   py -3.12 -m venv venv
    ```
 4. Activate the virtual environment:
    ```powershell
@@ -175,6 +181,7 @@ If you prefer not to use Docker, you can run the application directly using Pyth
    *(If you get a red error about "Execution Policies", run this command first: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` and try step 4 again).*
 5. Install the required files:
    ```powershell
+   python -m pip install -U pip setuptools wheel
    pip install -r requirements.txt
    ```
 6. Start the application:
