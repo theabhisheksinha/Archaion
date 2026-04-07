@@ -145,6 +145,19 @@ There are two main ways to run this application: **Local Setup** and **Docker**.
 - `crewai` currently imports `pkg_resources`, which is provided by `setuptools`.
 - This repository pins `setuptools==80.10.2` in [requirements.txt](requirements.txt) to keep `pkg_resources` available and avoid startup/import failures.
 
+### Logs (Local + Docker)
+- Local runs write logs to `logs/archaion.log` (directory is created automatically next to `app/`).
+- Configure via environment variables:
+  - `LOG_LEVEL` (default: `INFO`)
+  - `LOG_FILE` (default: `logs/archaion.log`; set to `none` to disable file logging)
+- Docker logs are handled by Docker’s log driver and rotated (see `docker-compose.yml`).
+
+### OpenRouter Model Selection
+- Default OpenRouter model is controlled by:
+  - `OPENROUTER_MODEL` (default: `openai/gpt-4o`)
+- Per-agent models are selected internally when `OpenRouter` is the chosen provider.
+- If OpenRouter returns a 404 model/route error, the backend automatically falls back to a safe default model for all agents.
+
 ### Known Runtime Errors & Fixes
 - **`ModuleNotFoundError: No module named 'pkg_resources'`**
   - Install dependencies inside the venv and ensure `setuptools==80.10.2` is installed.

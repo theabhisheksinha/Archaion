@@ -11,7 +11,10 @@ import logging
 logger = logging.getLogger("archaion.mcp_tools")
 
 class MCPToolInput(BaseModel):
-    tool_args: str = Field(description="JSON string representing the arguments for the MCP tool.")
+    tool_args: Optional[str] = Field(
+        default="{}",
+        description="JSON string representing the arguments for the MCP tool. Defaults to '{}' when omitted.",
+    )
 
 class MCPToolWrapper(BaseTool):
     name: str = "mcp_tool"
@@ -22,10 +25,14 @@ class MCPToolWrapper(BaseTool):
     mcp_client: Any = Field(exclude=True)
     loop: Any = Field(exclude=True)
 
-    def _run(self, tool_args: str) -> str:
+    def _run(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
         try:
             # Parse the incoming JSON args
-            if isinstance(tool_args, dict):
+            if tool_args is None and kwargs:
+                payload = kwargs
+            elif tool_args is None:
+                payload = {}
+            elif isinstance(tool_args, dict):
                 payload = tool_args
             else:
                 payload = json.loads(tool_args)
@@ -43,6 +50,9 @@ class MCPToolWrapper(BaseTool):
         except Exception as e:
             logger.error(f"Error executing MCP tool {self.name}: {e}")
             return f"Error executing tool {self.name}: {str(e)}"
+
+    async def _arun(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
+        return self._run(tool_args=tool_args, **kwargs)
 
 def create_mcp_tool(tool_name: str, tool_description: str, mcp_client: Any, loop: Any) -> MCPToolWrapper:
     """Factory to create a CrewAI BaseTool wrapper for a specific MCP tool."""

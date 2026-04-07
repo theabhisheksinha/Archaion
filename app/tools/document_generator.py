@@ -40,7 +40,18 @@ def generate_docx_from_markdown(md_text: str, app_name: str = "UnknownApp") -> i
         doc.add_paragraph("No severe CWE weaknesses found. Application adheres to Reliability, Security, Performance, and Maintainability standards.")
 
     if "Disclaimer" not in md_text:
-        doc.add_paragraph(f"\nDisclaimer: This is an AI generated report using deterministic details for {app_name} from CAST Imaging through its MCP Server.")
+        doc.add_heading("Disclaimer", level=1)
+        doc.add_paragraph(
+            "Disclaimer - This document and the information contained herein are provided for informational and guidance purposes only. "
+            "Before incorporating any of these configurations, scripts, or architectural patterns into a formal modernization journey, "
+            "they must be reviewed and verified by a competent Solutions Architect to ensure alignment with specific infrastructure, "
+            "security, and compliance requirements."
+        )
+        doc.add_paragraph(
+            "The developer of this platform and CAST Software assume no responsibility or liability for any errors, omissions, or damages—"
+            "direct or indirect—resulting from the use or implementation of this information. "
+            "All actions taken based on this content are at the user's own risk and discretion."
+        )
 
     file_stream = io.BytesIO()
     doc.save(file_stream)

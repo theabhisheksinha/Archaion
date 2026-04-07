@@ -11,6 +11,16 @@ from app.tools.mcp_tools import create_mcp_tool
 logger = logging.getLogger("archaion.crew")
 
 class ModernizationCrew:
+    _OPENROUTER_INTERNAL_MODELS: Dict[str, str] = {
+        "default": "openai/gpt-4o",
+        "manager": "openai/gpt-4o",
+        "portfolio_specialist": "openai/gpt-4o-mini",
+        "system_profile_analyst": "openai/gpt-4o-mini",
+        "transformation_manager": "openai/gpt-4o",
+        "data_architect": "openai/gpt-4o",
+        "logic_specialist": "openai/gpt-4o",
+        "risk_auditor": "openai/gpt-4o",
+    }
     _AGENTS: Dict[str, Dict[str, str]] = {
         "portfolio_specialist": {
             "role": "Discovery Analyst",
@@ -95,39 +105,73 @@ class ModernizationCrew:
         },
     }
 
-    def __init__(self, llm_provider: str, llm_key: str, mcp_client: Any = None, loop: Any = None, step_callback: Any = None):
+    def __init__(
+        self,
+        llm_provider: str,
+        llm_key: str,
+        llm_model: Optional[str] = None,
+        enable_per_agent_models: bool = True,
+        mcp_client: Any = None,
+        loop: Any = None,
+        step_callback: Any = None,
+    ):
         self.mcp_client = mcp_client
         self.loop = loop
         self.step_callback = step_callback
+        self.llm_provider = llm_provider
+        self.llm_key = llm_key
+        self._llm_cache: Dict[str, Any] = {}
+        self.model_overrides: Dict[str, str] = {}
+        if self.llm_provider == "openrouter" and enable_per_agent_models:
+            self.model_overrides = dict(self._OPENROUTER_INTERNAL_MODELS)
         
         try:
             if llm_provider == "openrouter":
-                self.llm = ChatOpenAI(
-                    model="google/gemini-2.5-flash",
-                    api_key=llm_key,
-                    base_url="https://openrouter.ai/api/v1"
-                )
+                self.default_model = llm_model or os.getenv("OPENROUTER_MODEL") or self.model_overrides.get("default") or "openai/gpt-4o"
+                self.llm = self._openrouter_llm(self.default_model)
             elif llm_provider == "openai":
-                self.llm = ChatOpenAI(model="gpt-4o", api_key=llm_key)
+                self.default_model = llm_model or "gpt-4o"
+                self.llm = ChatOpenAI(model=self.default_model, api_key=llm_key)
             elif llm_provider == "gemini":
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
                 except Exception as e:
                     raise RuntimeError("Missing dependency: langchain-google-genai") from e
-                self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=llm_key)
+                self.default_model = llm_model or "gemini-1.5-pro"
+                self.llm = ChatGoogleGenerativeAI(model=self.default_model, google_api_key=llm_key)
             elif llm_provider == "azure":
-                self.llm = ChatOpenAI(model="gpt-4o", api_key=llm_key) # Requires full Azure setup in prod
+                self.default_model = llm_model or "gpt-4o"
+                self.llm = ChatOpenAI(model=self.default_model, api_key=llm_key)
             else:
-                self.llm = ChatOpenAI(
-                    model="google/gemini-2.5-flash",
-                    api_key=llm_key,
-                    base_url="https://openrouter.ai/api/v1"
-                )
+                self.default_model = llm_model or self.model_overrides.get("default") or os.getenv("OPENROUTER_MODEL") or "openai/gpt-4o"
+                self.llm = self._openrouter_llm(self.default_model)
         except Exception as e:
             logger.warning(f"Error configuring LLM: {e}")
             self.llm = None
 
-        self.manager_llm = self.llm
+        if self.llm_provider == "openrouter":
+            manager_model = (
+                self.model_overrides.get("manager")
+                or self.model_overrides.get("transformation_manager")
+                or self.default_model
+            )
+            self.manager_llm = self._openrouter_llm(manager_model)
+        else:
+            self.manager_llm = self.llm
+
+    def _openrouter_llm(self, model: str):
+        key = f"openrouter::{model}"
+        if key in self._llm_cache:
+            return self._llm_cache[key]
+        llm = ChatOpenAI(model=model, api_key=self.llm_key, base_url="https://openrouter.ai/api/v1")
+        self._llm_cache[key] = llm
+        return llm
+
+    def _agent_llm(self, agent_key: str):
+        if self.llm_provider != "openrouter" or not self.llm:
+            return self.llm
+        model = self.model_overrides.get(agent_key) or self.model_overrides.get("default") or self.default_model
+        return self._openrouter_llm(model)
 
     def _get_tool(self, name: str, desc: str):
         if not self.mcp_client or not self.loop:
@@ -140,7 +184,7 @@ class ModernizationCrew:
             role=self._AGENTS["portfolio_specialist"]["role"],
             goal=self._AGENTS["portfolio_specialist"]["goal"],
             backstory=self._AGENTS["portfolio_specialist"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("portfolio_specialist"),
             tools=[tool] if tool else [],
             verbose=True,
             allow_delegation=False,
@@ -155,7 +199,7 @@ class ModernizationCrew:
             role=self._AGENTS["system_profile_analyst"]["role"],
             goal=self._AGENTS["system_profile_analyst"]["goal"],
             backstory=self._AGENTS["system_profile_analyst"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("system_profile_analyst"),
             tools=tools,
             verbose=True,
             allow_delegation=False,
@@ -170,7 +214,7 @@ class ModernizationCrew:
             role=self._AGENTS["transformation_manager"]["role"],
             goal=self._AGENTS["transformation_manager"]["goal"],
             backstory=self._AGENTS["transformation_manager"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("transformation_manager"),
             tools=tools,
             verbose=True,
             allow_delegation=True,
@@ -186,7 +230,7 @@ class ModernizationCrew:
             role=self._AGENTS["data_architect"]["role"],
             goal=self._AGENTS["data_architect"]["goal"],
             backstory=self._AGENTS["data_architect"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("data_architect"),
             tools=tools,
             verbose=True,
             allow_delegation=False,
@@ -202,7 +246,7 @@ class ModernizationCrew:
             role=self._AGENTS["logic_specialist"]["role"],
             goal=self._AGENTS["logic_specialist"]["goal"],
             backstory=self._AGENTS["logic_specialist"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("logic_specialist"),
             tools=tools,
             verbose=True,
             allow_delegation=False,
@@ -218,7 +262,7 @@ class ModernizationCrew:
             role=self._AGENTS["risk_auditor"]["role"],
             goal=self._AGENTS["risk_auditor"]["goal"],
             backstory=self._AGENTS["risk_auditor"]["backstory"],
-            llm=self.llm,
+            llm=self._agent_llm("risk_auditor"),
             tools=tools,
             verbose=True,
             allow_delegation=False,

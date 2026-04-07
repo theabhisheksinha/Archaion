@@ -38,6 +38,10 @@ class ModernizationFlow:
 
     def push_update(self, msg: str):
         print(f"Flow Update: {msg}")
+        try:
+            logger.info(msg)
+        except Exception:
+            pass
         self.state.status_updates.append(msg)
 
     async def discover_portfolio(self):
@@ -74,9 +78,11 @@ class ModernizationFlow:
         
         ui_llm_provider = params.get("llm_provider")
         ui_llm_key = params.get("llm_key")
+        ui_llm_model = params.get("llm_model")
         
         llm_provider = ui_llm_provider or "openrouter"
         llm_key = ui_llm_key or os.environ.get("OPENROUTER_API_KEY", "")
+        llm_model = ui_llm_model or os.environ.get("OPENROUTER_MODEL") or "openai/gpt-4o"
         
         source = "UI Settings Payload" if ui_llm_key else "Environment Variables (.env)"
         logger.debug(f"[CONFIG TRACE] Initializing CrewAI with LLM Provider: {llm_provider.upper()} (Source: {source})")
@@ -136,21 +142,60 @@ class ModernizationFlow:
                     else:
                         self.push_update(f"Agent Action: {str(step_output)}")
 
-                # Instantiate Crew with dynamic LLM keys, MCP client, and current event loop
-                crew_instance = ModernizationCrew(
-                    llm_provider=llm_provider, 
-                    llm_key=llm_key,
-                    mcp_client=self.mcp_client,
-                    loop=loop,
-                    step_callback=crew_step_callback
-                ).crew()
-                
-                # Run crewai kick_off in a thread to prevent blocking the asyncio loop
-                try:
-                    result = await asyncio.to_thread(crew_instance.kickoff, inputs=inputs)
-                except TypeError:
-                    # Older CrewAI versions may not accept keyword args
-                    result = await asyncio.to_thread(crew_instance.kickoff)
+                model_candidates: List[Optional[str]] = [llm_model]
+                if llm_provider == "openrouter":
+                    for extra in ("openai/gpt-4o-mini", "google/gemini-2.5-flash"):
+                        if extra not in model_candidates:
+                            model_candidates.append(extra)
+
+                last_error: Optional[Exception] = None
+                result = None
+                chosen_model = llm_model
+
+                for candidate in model_candidates:
+                    chosen_model = candidate or chosen_model
+                    try:
+                        crew_instance = ModernizationCrew(
+                            llm_provider=llm_provider,
+                            llm_key=llm_key,
+                            llm_model=chosen_model,
+                            enable_per_agent_models=(llm_provider == "openrouter"),
+                            mcp_client=self.mcp_client,
+                            loop=loop,
+                            step_callback=crew_step_callback,
+                        ).crew()
+
+                        try:
+                            result = await asyncio.to_thread(crew_instance.kickoff, inputs=inputs)
+                        except TypeError:
+                            result = await asyncio.to_thread(crew_instance.kickoff)
+                        last_error = None
+                        break
+                    except Exception as e:
+                        last_error = e
+                        s = str(e).lower()
+                        is_model_404 = "no endpoints found" in s or "error code: 404" in s or "\"code\": 404" in s
+                        if llm_provider == "openrouter" and is_model_404:
+                            self.push_update("OpenRouter selected model unavailable. Retrying with internal fallback settings...")
+                            crew_instance = ModernizationCrew(
+                                llm_provider=llm_provider,
+                                llm_key=llm_key,
+                                llm_model=chosen_model,
+                                enable_per_agent_models=False,
+                                mcp_client=self.mcp_client,
+                                loop=loop,
+                                step_callback=crew_step_callback,
+                            ).crew()
+                            try:
+                                result = await asyncio.to_thread(crew_instance.kickoff, inputs=inputs)
+                            except TypeError:
+                                result = await asyncio.to_thread(crew_instance.kickoff)
+                            last_error = None
+                            break
+                        raise
+
+                if last_error is not None or result is None:
+                    raise last_error or RuntimeError("Crew kickoff failed")
                 
                 tasks_output = getattr(result, "tasks_output", None)
                 mission_parts: List[str] = []
@@ -180,6 +225,7 @@ class ModernizationFlow:
                 self.state.validation_report = (validation_text or "").strip() or "Validation integrated in the report."
                     
             except Exception as e:
+                logger.exception("CrewAI execution failed")
                 self.push_update(f"CrewAI Error: {str(e)}")
                 self.state.mission_report = f"Error generating plan: {str(e)}"
                 self.state.validation_report = "Validation failed due to error."

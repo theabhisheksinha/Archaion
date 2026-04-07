@@ -4,6 +4,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 import json
 import logging
+import re
+from logging.handlers import RotatingFileHandler
 import asyncio
 from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Request, Query
@@ -22,9 +24,57 @@ load_dotenv()
 CAST_MCP_URL = os.getenv("CAST_MCP_URL", "")
 CAST_X_API_KEY = os.getenv("CAST_X_API_KEY", "")
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("archaion.backend")
-logger.setLevel(logging.DEBUG)
+DISCLAIMER_TEXT = (
+    "## Disclaimer\n"
+    "Disclaimer - This document and the information contained herein are provided for informational and guidance purposes only. "
+    "Before incorporating any of these configurations, scripts, or architectural patterns into a formal modernization journey, "
+    "they must be reviewed and verified by a competent Solutions Architect to ensure alignment with specific infrastructure, "
+    "security, and compliance requirements.\n\n"
+    "The developer of this platform and CAST Software assume no responsibility or liability for any errors, omissions, or damages—"
+    "direct or indirect—resulting from the use or implementation of this information. "
+    "All actions taken based on this content are at the user's own risk and discretion."
+)
+
+def _setup_logging() -> logging.Logger:
+    lvl = (os.getenv("LOG_LEVEL") or "INFO").upper()
+    log_file = os.getenv("LOG_FILE")
+    if log_file is None:
+        log_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "logs", "archaion.log"))
+    if str(log_file).strip().lower() in {"", "0", "false", "none", "null"}:
+        log_file = None
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, lvl, logging.INFO))
+
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+
+        existing = [
+            h
+            for h in root.handlers
+            if isinstance(h, RotatingFileHandler)
+            and getattr(h, "baseFilename", None)
+            and os.path.abspath(getattr(h, "baseFilename")) == os.path.abspath(log_file)
+        ]
+
+        if not existing:
+            fh = RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8")
+            fh.setFormatter(fmt)
+            root.addHandler(fh)
+
+    return logging.getLogger("archaion.backend")
+
+
+logger = _setup_logging()
 
 class MCPServerHTTP:
     def __init__(self, base_url: str, api_key: str):
@@ -91,6 +141,7 @@ class AnalyzeRequest(BaseModel):
     mcp_key: Optional[str] = None
     llm_provider: Optional[str] = None
     llm_key: Optional[str] = None
+    llm_model: Optional[str] = None
 
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -111,7 +162,14 @@ def parse_mcp_response(res):
                 text_content = first.get("text", "")
                 try:
                     clean_str = text_content.replace('\\n', '\n')
-                    return json.loads(clean_str)
+                    try:
+                        return json.loads(clean_str)
+                    except json.JSONDecodeError:
+                        try:
+                            return json.loads(clean_str, strict=False)
+                        except Exception:
+                            clean_str2 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", clean_str)
+                            return json.loads(clean_str2, strict=False)
                 except Exception as e:
                     logger.error(f"Error parsing MCP JSON content: {e}")
                     pass
@@ -120,7 +178,14 @@ def parse_mcp_response(res):
         if "content" in res and isinstance(res["content"], str):
             try:
                 clean_str = res["content"].replace('\\n', '\n')
-                return json.loads(clean_str)
+                try:
+                    return json.loads(clean_str)
+                except json.JSONDecodeError:
+                    try:
+                        return json.loads(clean_str, strict=False)
+                    except Exception:
+                        clean_str2 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", clean_str)
+                        return json.loads(clean_str2, strict=False)
             except:
                 pass
         if "items" in res:
@@ -138,6 +203,7 @@ async def get_applications(request: Request):
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
     llm_provider = request.headers.get("x-llm-provider") or "openrouter"
     llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
+    llm_model = request.headers.get("x-llm-model") or os.environ.get("OPENROUTER_MODEL") or "openai/gpt-4o"
     
     if not mcp_url or not mcp_key:
         raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
@@ -147,7 +213,7 @@ async def get_applications(request: Request):
         await mcp.open()
         
         loop = asyncio.get_running_loop()
-        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, mcp_client=mcp, loop=loop)
+        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, llm_model=llm_model, mcp_client=mcp, loop=loop)
         
         portfolio_agent = mod_crew.portfolio_specialist()
         portfolio_task = Task(
@@ -193,6 +259,7 @@ async def get_dna(request: Request, app_id: str = Query(...)):
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
     llm_provider = request.headers.get("x-llm-provider") or "openrouter"
     llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
+    llm_model = request.headers.get("x-llm-model") or os.environ.get("OPENROUTER_MODEL") or "openai/gpt-4o"
     
     if not mcp_url or not mcp_key:
         raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
@@ -202,7 +269,7 @@ async def get_dna(request: Request, app_id: str = Query(...)):
         await mcp.open()
         
         loop = asyncio.get_running_loop()
-        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, mcp_client=mcp, loop=loop)
+        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, llm_model=llm_model, mcp_client=mcp, loop=loop)
         
         profile_agent = mod_crew.system_profile_analyst()
         profile_task = Task(
@@ -314,7 +381,8 @@ async def analyze_stream(request: Request, job_id: str):
                 "executive_summary": flow.state.mission_report or "",
                 "architecture_insights": "",
                 "modernization_roadmap": "",
-                "iso_5055_flaws": flow.state.validation_report or ""
+                "iso_5055_flaws": flow.state.validation_report or "",
+                "disclaimer": DISCLAIMER_TEXT
             }
             state["report"] = report
             state["status"] = "completed"
@@ -335,7 +403,13 @@ async def download_report(job_id: str):
         raise HTTPException(status_code=404, detail="Report not found")
         
     report = state["report"]
-    md = f"{report.get('executive_summary', '')}\n\n{report.get('architecture_insights', '')}\n\n{report.get('modernization_roadmap', '')}\n\n{report.get('iso_5055_flaws', '')}"
+    md = (
+        f"{report.get('executive_summary', '')}\n\n"
+        f"{report.get('architecture_insights', '')}\n\n"
+        f"{report.get('modernization_roadmap', '')}\n\n"
+        f"{report.get('iso_5055_flaws', '')}\n\n"
+        f"{report.get('disclaimer', '')}"
+    )
     
     app_name = state["req"].get("app_id", job_id)
     file_stream = generate_docx_from_markdown(md, app_name)

@@ -542,7 +542,7 @@ function displayReport(report, jobId) {
     section.classList.remove("hidden");
     
     // Very basic markdown to HTML for demo
-    const md = `${report.executive_summary}\n\n${report.architecture_insights}\n\n${report.modernization_roadmap}\n\n${report.iso_5055_flaws}`;
+    const md = `${report.executive_summary || ""}\n\n${report.architecture_insights || ""}\n\n${report.modernization_roadmap || ""}\n\n${report.iso_5055_flaws || ""}\n\n${report.disclaimer || ""}`;
     
     content.innerHTML = md.replace(/\n/g, '<br>').replace(/## (.*?)<br>/g, '<h2>$1</h2>').replace(/# (.*?)<br>/g, '<h1>$1</h1>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     

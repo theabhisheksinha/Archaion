@@ -19,14 +19,16 @@
                 <img src="assets/Archaion%20-%20agentic%20platform.png" alt="Archaion — The Agentic Platform for Modernization (powered by CAST Imaging MCP)" class="app-logo">
                 <div class="logo-text-group">
                     <p class="tagline-main">The Agentic Modernization platform</p>
-                    <p class="tagline-sub">powered by CAST Imaging MCP</p>
+                    <div class="tagline-sub-row">
+                        <p class="tagline-sub">powered by CAST Imaging MCP</p>
+                        <div class="header-actions">
+                            <p class="api-label" id="mcp-label">Connected CAST MCP: Loading...</p>
+                            <button id="settings-btn" class="icon-btn" title="Settings">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="gear-icon"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="header-actions">
-                <p class="api-label" id="mcp-label">Connected CAST MCP: Loading...</p>
-                <button id="settings-btn" class="icon-btn" title="Settings">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="gear-icon"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                </button>
             </div>
         </header>
 
@@ -94,12 +96,12 @@
                     <div class="wizard-step active" id="step-1" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start;">
                         
                         <div style="grid-column: 1 / -1;">
-                            <label>Modernization Objective (txtObjective):</label>
+                            <label>Modernization Objective (500 charecters max):</label>
                             <textarea id="txtObjective" maxlength="500" placeholder="Describe your vision for this app..." required style="width: 100%; height: 80px; background: #11132a; border: 1px solid var(--glass-border); color: #fff; padding: 0.8rem; border-radius: 4px; font-family: inherit; resize: vertical; outline: none;"></textarea>
                         </div>
 
                         <div>
-                            <label>Modernization Goal (selGoal):</label>
+                            <label>Modernization Goal:</label>
                             <select id="selGoal" style="width: 100%;">
                                 <option value="Mono2Micro">Mono2Micro</option>
                                 <option value="Cloud Migration">Cloud Migration</option>
@@ -122,7 +124,7 @@
                         </div>
 
                         <div>
-                            <label>Vulnerabilities (selVuln):</label>
+                            <label>Vulnerabilities:</label>
                             <select id="selVuln" style="width: 100%;">
                                 <option value="CVEs">CVEs</option>
                                 <option value="CWEs">CWEs</option>
@@ -131,7 +133,7 @@
                         </div>
 
                         <div>
-                            <label>Database Migration (selDBMigration):</label>
+                            <label>Database Migration:</label>
                             <select id="selDBMigration" style="width: 100%;">
                                 <option value="No Migration">No Migration</option>
                                 <option value="Postgres">Postgres</option>
