@@ -1,8 +1,0 @@
-fastapi
-uvicorn
-httpx
-python-dotenv
-crewai
-litellm
-crewai-tools[mcp]
-python-docx

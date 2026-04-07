@@ -16,7 +16,7 @@
     <div class="container">
         <header class="header-bar">
             <div class="logo-container">
-                <img src="assets/Archaion.png" alt="Archaion Logo" class="app-logo">
+                <img src="assets/Archaion%20-%20agentic%20platform.png" alt="Archaion — The Agentic Platform for Modernization (powered by CAST Imaging MCP)" class="app-logo">
                 <div class="logo-text-group">
                     <p class="tagline-main">The Agentic Modernization platform</p>
                     <p class="tagline-sub">powered by CAST Imaging MCP</p>
@@ -89,51 +89,92 @@
 
             <!-- 3. Define your Modernization Scope -->
             <section class="glass-panel hidden" id="mission-scoping">
-                <h2>Define your Modernization Scope</h2>
+                <h2>Mission Command Center</h2>
                 <form id="wizard-form">
-                    <div class="wizard-step active" id="step-1" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: end;">
+                    <div class="wizard-step active" id="step-1" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start;">
+                        
+                        <div style="grid-column: 1 / -1;">
+                            <label>Modernization Objective (txtObjective):</label>
+                            <textarea id="txtObjective" maxlength="500" placeholder="Describe your vision for this app..." required style="width: 100%; height: 80px; background: #11132a; border: 1px solid var(--glass-border); color: #fff; padding: 0.8rem; border-radius: 4px; font-family: inherit; resize: vertical; outline: none;"></textarea>
+                        </div>
+
                         <div>
-                            <label>Modernization Goal:</label>
-                            <select id="goal" style="width: 100%;">
-                                <option value="decompose">Decompose Monolith</option>
-                                <option value="remediate">Remediate Tech Debt</option>
-                                <option value="migrate">Cloud Migration</option>
+                            <label>Modernization Goal (selGoal):</label>
+                            <select id="selGoal" style="width: 100%;">
+                                <option value="Mono2Micro">Mono2Micro</option>
+                                <option value="Cloud Migration">Cloud Migration</option>
+                                <option value="Refactor">Refactor</option>
+                                <option value="Rearchitect">Rearchitect</option>
+                                <option value="Re-platform (Mainframe)">Re-platform (Mainframe)</option>
+                                <option value="Rewrite (Non-Mainframe)">Rewrite (Non-Mainframe)</option>
+                                <option value="Rewrite (Mainframe)">Rewrite (Mainframe)</option>
                             </select>
                         </div>
+
                         <div>
-                            <label>Target Framework:</label>
-                            <select id="target_framework" style="width: 100%;">
-                                <option value="spring-boot">Spring Boot</option>
-                                <option value="nodejs">Node.js</option>
-                                <option value="aws-lambda">AWS Lambda</option>
+                            <label>Risk Profile (selRiskProfile):</label>
+                            <select id="selRiskProfile" style="width: 100%;">
+                                <option value="ISO-5055 only">ISO-5055 only</option>
+                                <option value="Performance">Performance</option>
+                                <option value="Security">Security</option>
+                                <option value="Performance and Security">Performance and Security</option>
                             </select>
                         </div>
+
                         <div>
-                            <label>Compliance Standards:</label>
-                            <select id="compliance" style="width: 100%;">
-                                <option value="iso-5055">Strict ISO 5055</option>
-                                <option value="none">None</option>
+                            <label>Vulnerabilities (selVuln):</label>
+                            <select id="selVuln" style="width: 100%;">
+                                <option value="CVEs">CVEs</option>
+                                <option value="CWEs">CWEs</option>
+                                <option value="Both">Both</option>
                             </select>
                         </div>
+
                         <div>
-                            <label>Risk Profile:</label>
-                            <select id="risk_profile" style="width: 100%;">
-                                <option value="re-architect">High-Quality Re-architecting</option>
-                                <option value="re-host">High-Speed Re-host</option>
+                            <label>Database Migration (selDBMigration):</label>
+                            <select id="selDBMigration" style="width: 100%;">
+                                <option value="No Migration">No Migration</option>
+                                <option value="Postgres">Postgres</option>
+                                <option value="MySQL">MySQL</option>
                             </select>
                         </div>
-                        <div>
-                            <label>Refactoring Depth:</label>
-                            <input type="text" id="refactoring_depth" placeholder="e.g., split schema per service" value="split schema per service" required style="width: 100%;">
+
+                        <div style="grid-column: 1 / -1;">
+                            <label style="display: block; margin-bottom: 0.5rem;">Modernization Strategy (chkStrategy):</label>
+                            <div id="chkStrategy" style="display: flex; gap: 1.5rem; align-items: center;">
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" value="Containerization" id="chkContainerization" checked> Containerization
+                                </label>
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" value="Non-Containerization" id="chkNonContainerization"> Non-Containerization
+                                </label>
+                            </div>
                         </div>
-                        <div>
-                            <label>Review Protocol:</label>
-                            <select id="review_protocol" style="width: 100%;">
-                                <option value="human-in-loop">Human-in-the-loop</option>
-                                <option value="auto">Fully Autonomous</option>
-                            </select>
+
+                        <!-- Mainframe Section (Questions 5 & 6 conceptually, or additional logic) -->
+                        <div id="mainframeSection" style="display: none; grid-column: 1 / -1; margin-top: 1rem; padding: 1rem; border: 1px solid #e44d5e; border-radius: 8px; background: rgba(228, 77, 94, 0.1);">
+                            <h3 style="color: #e44d5e; margin-top: 0; margin-bottom: 1rem;">Mainframe Transformation Options</h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div>
+                                    <label>Batch Modernization Goal:</label>
+                                    <select id="rewrite_mainframe" style="width: 100%;">
+                                        <option value="Rewrite to Cloud-Native Batch">Rewrite to Cloud-Native Batch</option>
+                                        <option value="Encapsulate via APIs">Encapsulate via APIs</option>
+                                        <option value="Lift and Shift">Lift and Shift</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>Target Framework for Mainframe:</label>
+                                    <select id="target_lang" style="width: 100%;">
+                                        <option value="Spring Batch (Java)">Spring Batch (Java)</option>
+                                        <option value="AWS Step Functions (Python)">AWS Step Functions (Python)</option>
+                                        <option value="Azure Durable Functions (C#)">Azure Durable Functions (C#)</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div style="grid-column: 1 / -1; margin-top: 0.5rem;">
+
+                        <div style="grid-column: 1 / -1; margin-top: 1.5rem;">
                             <button type="submit" class="glow-btn" style="width: 100%;">Initialize Agents</button>
                         </div>
                     </div>

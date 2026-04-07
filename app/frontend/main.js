@@ -16,6 +16,8 @@ function getAuthHeaders() {
     const headers = {};
     if (s.mcp_url) headers['x-mcp-url'] = s.mcp_url;
     if (s.mcp_key) headers['x-api-key'] = s.mcp_key;
+    if (s.llm_provider) headers['x-llm-provider'] = s.llm_provider;
+    if (s.llm_key) headers['x-llm-key'] = s.llm_key;
     return headers;
 }
 
@@ -275,15 +277,16 @@ async function loadApplications() {
             return;
         }
 
-        apps.forEach(app => {
+        apps.forEach((app, index) => {
             const name = typeof app === 'string' ? app : (app.name || app.id || "Unknown App");
             const id = typeof app === 'string' ? app : (app.id || name);
             
             const label = document.createElement("label");
             label.className = "app-item";
+            label.style.display = "none";
             label.innerHTML = `
                 <input type="radio" name="app_selection" value="${id}">
-                <span style="font-weight:bold;">${name}</span>
+                <span style="font-weight:bold;"></span>
             `;
             
             label.querySelector("input").addEventListener("change", (e) => {
@@ -295,6 +298,21 @@ async function loadApplications() {
             });
             
             listContainer.appendChild(label);
+            
+            // Typewriter animation
+            setTimeout(() => {
+                label.style.display = "block";
+                const span = label.querySelector("span");
+                let charIdx = 0;
+                const timer = setInterval(() => {
+                    if (charIdx < name.length) {
+                        span.textContent += name.charAt(charIdx);
+                        charIdx++;
+                    } else {
+                        clearInterval(timer);
+                    }
+                }, 20);
+            }, index * 100);
         });
         
     } catch (err) {
@@ -338,12 +356,15 @@ async function loadDNA(appId) {
 
         // Simple heuristic for badge
         const dnaStr = JSON.stringify(dna).toLowerCase();
+        const mfSection = document.getElementById("mainframeSection");
         if (dnaStr.includes("cobol") || dnaStr.includes("mainframe") || dnaStr.includes("jcl")) {
             document.getElementById("mf-badge").innerHTML = '<span class="dot" style="background:#e44d5e;"></span> Mainframe tech: Detected';
             document.getElementById("mf-badge").style.borderColor = "#e44d5e";
+            if (mfSection) mfSection.style.display = "block";
         } else {
             document.getElementById("mf-badge").innerHTML = '<span class="dot" style="background:#10b981;"></span> Mainframe tech: Not detected';
             document.getElementById("mf-badge").style.borderColor = "#10b981";
+            if (mfSection) mfSection.style.display = "none";
         }
         
         detailsBox.innerHTML = renderDNA(dna);
@@ -444,14 +465,20 @@ document.getElementById("wizard-form").addEventListener("submit", async (e) => {
     }
     
     const s = getSettings();
+        const chkStrategy = [];
+    if(document.getElementById("chkContainerization").checked) chkStrategy.push("Containerization");
+    if(document.getElementById("chkNonContainerization").checked) chkStrategy.push("Non-Containerization");
+
     const payload = {
         app_id: selectedAppId,
-        goal: document.getElementById("goal").value,
-        target_framework: document.getElementById("target_framework").value,
-        compliance: document.getElementById("compliance").value,
-        risk_profile: document.getElementById("risk_profile").value,
-        refactoring_depth: document.getElementById("refactoring_depth").value,
-        review_protocol: document.getElementById("review_protocol").value,
+        objective: document.getElementById("txtObjective").value,
+        goal: document.getElementById("selGoal").value,
+        strategy: chkStrategy.join(", "),
+        risk_profile: document.getElementById("selRiskProfile").value,
+        vulnerabilities: document.getElementById("selVuln").value,
+        db_migration: document.getElementById("selDBMigration").value,
+        rewrite_mainframe: document.getElementById("mainframeSection").style.display !== "none" ? document.getElementById("rewrite_mainframe").value : "",
+        target_lang: document.getElementById("mainframeSection").style.display !== "none" ? document.getElementById("target_lang").value : "",
         mcp_url: s.mcp_url,
         mcp_key: s.mcp_key,
         llm_provider: s.llm_provider,
@@ -462,7 +489,7 @@ document.getElementById("wizard-form").addEventListener("submit", async (e) => {
     document.getElementById("terminal").innerHTML = '<p class="sys-msg">Initializing Mission...</p>';
     
     try {
-        const response = await fetch(`${API_BASE}/analyze/start`, {
+        const response = await fetch(`${API_BASE}/kickoff`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)

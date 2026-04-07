@@ -1,28 +1,61 @@
-decomposition_task:
+portfolio_task:
   description: >
-    Analyze the provided Application Technical DNA Profile:
+    Discover applications from the CAST Imaging MCP server using the 'applications' tool.
+  expected_output: >
+    A list of applications to populate the UI.
+  agent: portfolio_specialist
+
+profile_task:
+  description: >
+    Analyze the Application Technical DNA Profile:
     {dna_profile}
-    
-    Mission Parameters:
-    Goal: {goal}
-    Target Framework: {target_framework}
-    Compliance: {compliance}
-    Risk Profile: {risk_profile}
-    Refactoring Depth: {refactoring_depth}
-
-    Based on the profile and parameters, generate a comprehensive Modernization Plan in Markdown.
-    Include Executive Summary, Architecture Insights, and a Modernization Roadmap.
+    Extract LOC, Elements, and Interactions. Check for Mainframe technology.
   expected_output: >
-    A detailed Modernization Plan formatted in Markdown.
-  agent: micro2mono_agent
+    A system technical profile summary.
+  agent: system_profile_analyst
 
-validation_task:
+orchestration_task:
   description: >
-    Review the proposed Modernization Plan.
-    Also, consider any existing ISO 5055 flaws retrieved from the CAST MCP server:
-    {iso_5055_flaws}
-
-    Ensure the proposed architecture mitigates these flaws and adheres strictly to ISO 5055 standards.
+    Coordinate the modernization mission for {app_name}.
+    Objective: {objective}
+    Goal: {goal}
+    Strategy: {strategy}
+    Target Language for Mainframe (if applicable): {target_lang}
+    Ensure the final report includes all 10 mandatory sections:
+    1. As-IS Architecture (Layering/Component structure)
+    2. Present Database Architecture
+    3. Database Access Patterns (CRUD hotspots)
+    4. API Inventory & Anomalies
+    5. Proposed Recommended Architecture (Microservices/Containerization)
+    6. Rationale (Why this recommendation?)
+    7. Mono2micro Decomposition (Code & DB refactoring steps)
+    8. Cloud Service Map (Target Cloud rationale)
+    9. Strategic Consulting Conclusion (Risk/ROI)
+    10. Disclaimer: "This is an AI generated report using deterministic details for {app_name} from CAST Imaging through its MCP Server."
+    
+    IMPORTANT: The final report must use specific Object IDs from the MCP tools as evidence for its refactoring recommendations.
   expected_output: >
-    A brief 'ISO 5055 Quality Checks' section in Markdown appended to the main report or as a separate validation report.
-  agent: validator_agent
+    A structured report outlining the modernization strategy, integrating inputs from all specialists, and strictly containing the 10 mandatory sections with Object ID evidence.
+  agent: transformation_manager
+
+data_architecture_task:
+  description: >
+    Design the DB Migration plan based on {db_migration}. Map CRUD interaction hotspots.
+  expected_output: >
+    Database architecture and access patterns sections.
+  agent: data_architect
+
+logic_transformation_task:
+  description: >
+    Trace functional clusters and Mainframe logic paths based on {rewrite_mainframe} instructions.
+  expected_output: >
+    Mono2micro decomposition and API inventory sections.
+  agent: logic_specialist
+
+risk_audit_task:
+  description: >
+    Audit the proposed architecture considering {risk_profile} and {vulnerabilities}.
+    Consider flaws: {iso_5055_flaws}
+  expected_output: >
+    Strategic consulting conclusion (Risk/ROI) and compliance report.
+  agent: risk_auditor

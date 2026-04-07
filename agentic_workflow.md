@@ -17,122 +17,83 @@ In Archaion, the modernization process is treated like a collaborative team of e
 
 ## 🏗 CrewAI Architecture in Archaion
 
-The CrewAI implementation lives primarily within the `app/flows/modernization_flow.py` and the `app/agents/config/` YAML files.
+The CrewAI implementation is split across a few files:
 
-### 1. The Configuration Files (The "DNA" of the Agents)
-Instead of hardcoding prompts deep inside Python functions, CrewAI promotes separating logic into easily readable YAML files.
+- Backend entrypoint + SSE stream: `app/backend/main.py`
+- Workflow/state: `app/flows/modernization_flow.py`
+- Agent + task assembly: `app/backend/crew.py`
+- MCP tool adapter for CrewAI: `app/tools/mcp_tools.py`
 
-- **`app/agents/config/agents.yaml`**: Defines *who* is doing the work.
-  - `micro2mono_agent`: An architectural expert specializing in breaking down monoliths.
-  - `validator_agent`: A quality gatekeeper strictly adhering to ISO 5055 standards.
+The `app/agents/config/*.yaml` files are present for readability and future refactors, but the current runtime flow builds agents/tasks in Python.
 
-- **`app/agents/config/tasks.yaml`**: Defines *what* work needs to be done.
-  - `decomposition_task`: Takes the CAST MCP DNA and user parameters to write the initial modernization plan. Assigned to the `micro2mono_agent`.
-  - `validation_task`: Reviews the output of the first task against the CAST MCP ISO 5055 flaws to ensure the proposed architecture is safe. Assigned to the `validator_agent`.
+### 1. Execution Model (UI → Backend → Flow → Crew)
+1. The UI starts a mission by POSTing to `/kickoff` (see `app/frontend/main.js`).
+2. The UI opens an SSE connection to `/analyze/stream/{job_id}` to stream status updates.
+3. The backend creates a `ModernizationFlow`, sets:
+   - `flow.state.selected_app_id`
+   - `flow.state.mission_params` (includes MCP credentials + LLM provider/key)
+4. The flow runs:
+   - `discover_portfolio()` (MCP `applications`)
+   - `profile_application()` (MCP `stats`)
+   - `execute_mission()` (CrewAI kickoff in a worker thread)
+   - `validate_iso5055()` (final status; validation is produced by the Crew)
 
-### 2. The Python Implementation (The Orchestrator)
-The `ModernizationCrew` class in `app/flows/modernization_flow.py` is the orchestrator that brings the YAML configurations to life.
+### 2. Crew Assembly (Agents, Tasks, Process)
+The `ModernizationCrew` class in `app/backend/crew.py`:
+- Chooses an LLM based on `llm_provider` and `llm_key`.
+- Attaches MCP-backed tools to agents via `create_mcp_tool(...)`.
+- Defines agent roles/goals/backstories and task templates (Python dicts).
+- Builds a `Crew` with a best-effort hierarchical process when supported.
 
-```python
-@CrewBase
-class ModernizationCrew:
-    # 1. Loads the YAML configs
-    agents_config = 'agents.yaml'
-    tasks_config = 'tasks.yaml'
+Important behavior:
+- The “manager” model is not hardcoded to a different provider. The manager LLM reuses the selected LLM to avoid provider/model mismatch errors (e.g., OpenRouter 404 for an Anthropic model ID).
 
-    # 2. Initializes the LLM dynamically (OpenRouter, OpenAI, etc.)
-    def __init__(self, llm_provider, llm_key):
-        self.llm = LLM(...)
+### 3. MCP Tools Inside CrewAI
+`app/tools/mcp_tools.py` wraps CAST MCP tools into a CrewAI tool interface.
 
-    # 3. Binds the YAML definitions to Python Agent objects
-    @agent
-    def micro2mono_agent(self) -> Agent: ...
-
-    # 4. Binds the YAML definitions to Python Task objects
-    @task
-    def decomposition_task(self) -> Task: ...
-
-    # 5. Assembles the Crew and dictates the process (Sequential)
-    @crew
-    def crew(self) -> Crew:
-        return Crew(agents=self.agents, tasks=self.tasks, process=Process.sequential)
-```
-
-### 3. The Execution Context
-When the user clicks "Initialize Agents" in the UI, the `ModernizationFlow` class takes over:
-1. It queries the CAST MCP Server to grab the real-world facts (`dna_profile`, `iso_5055_flaws`).
-2. It bundles these facts alongside the user's UI choices (`goal`, `target_framework`) into a single `inputs` dictionary.
-3. It calls `crew_instance.kickoff(inputs=inputs)`. CrewAI automatically injects the `inputs` into the placeholders defined in `tasks.yaml` (e.g., `{dna_profile}`).
+Practical notes:
+- The MCP tool name must exist on the connected CAST MCP server.
+- The MCP payload keys must match what the MCP tool expects (for example, some tools expect `application`, some expect `app_name`, etc.).
 
 ---
 
 ## 🛠 How to Add a New Agent to Archaion
 
-Adding a new expert to the team (for example, a `Security_Auditor_Agent`) is incredibly straightforward. Follow these three steps:
+Add a new expert agent by editing `app/backend/crew.py` and (optionally) the UI inputs.
 
-### Step 1: Define the Agent in YAML
-Open `app/agents/config/agents.yaml` and add the new role:
+### Step 1: Add an Agent Definition
+In `ModernizationCrew._AGENTS`, add a new entry:
+- `role`
+- `goal`
+- `backstory`
 
-```yaml
-security_auditor_agent:
-  role: "Cybersecurity Specialist"
-  goal: "Review the proposed architecture specifically for data leaks and OWASP Top 10 vulnerabilities."
-  backstory: "A paranoid, highly detail-oriented security architect who trusts no code and assumes all APIs are publicly exposed."
-```
+Then add a method that returns a CrewAI `Agent` (follow the style of existing agent methods).
+If the agent needs CAST data mid-run, attach tools using `self._get_tool(...)`.
 
-### Step 2: Define the Task in YAML
-Open `app/agents/config/tasks.yaml` and add the task. Assign it to the new agent.
+### Step 2: Add a Task Definition
+In `ModernizationCrew._TASKS`, add:
+- `description` (can include placeholders like `{objective}`, `{dna_profile}`, etc.)
+- `expected_output`
+- `agent` (must match your agent key)
 
-```yaml
-security_review_task:
-  description: >
-    Review the proposed Modernization Plan. Focus specifically on the Data Sensitivity levels provided:
-    {data_sensitivity}
-    
-    Ensure the new architecture includes strict zero-trust networking policies.
-  expected_output: >
-    A 'Security Audit' section in Markdown.
-  agent: security_auditor_agent
-```
+Then ensure the task is included in `ModernizationCrew.crew()` (add it to the `tasks` list).
 
-### Step 3: Bind them in Python
-Open `app/flows/modernization_flow.py` and update the `ModernizationCrew` class:
+### Step 3: Pass New Inputs (If Needed)
+If your task template uses a new placeholder, update the `inputs` dict inside `ModernizationFlow.execute_mission()` to include it.
 
-```python
-    @agent
-    def security_auditor_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['security_auditor_agent'],
-            llm=self.llm,
-            verbose=True
-        )
-
-    @task
-    def security_review_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['security_review_task']
-        )
-```
-
-### Step 4: (Optional) Update the Inputs
-If your new task requires a new piece of data (like `{data_sensitivity}` in the example above), ensure you pass it into the `inputs` dictionary in the `execute_mission` function before calling `kickoff()`:
-
-```python
-inputs = {
-    "dna_profile": ...,
-    "iso_5055_flaws": ...,
-    "data_sensitivity": json.dumps(self.state.dna_profile.get("Data_Sensitivity_levels", [])) # New input!
-}
-```
+### Step 4: Wire Output Into the UI (Optional)
+The UI currently displays `executive_summary` and `iso_5055_flaws` fields in the report response.
+If you want a new section rendered separately, extend the report object assembled in `app/backend/main.py` and update `displayReport(...)` in `app/frontend/main.js`.
 
 ---
 
 ## 🚀 Advanced Capabilities (Future Expansion)
 
 ### 1. Parallel Processing
-Currently, the Archaion Crew operates sequentially (`Process.sequential`). This means the Validator waits for the Architect to finish before starting. 
-If you add multiple independent reviewers (e.g., a Security Agent and a Performance Agent), you can change the process to `Process.hierarchical` or configure asynchronous tasks in CrewAI to speed up execution.
+CrewAI support varies by version. The current code attempts hierarchical execution when available and falls back gracefully when not.
 
 ### 2. Custom Tools for Agents
-Currently, the FastAPI backend fetches the CAST MCP data *before* the Crew starts. In the future, you can give the agents direct access to the CAST MCP tools!
-By defining a custom tool in `app/agents/tools/`, you can empower the agent to query the MCP server autonomously *during* its thought process if it decides it needs more information about a specific code element.
+Agents can already call MCP tools during execution via the `MCPToolWrapper`. To add a new tool:
+1. Identify the exact CAST MCP tool name and required payload keys.
+2. Add `self._get_tool("<tool_name>", "<description>")` to the relevant agent method in `app/backend/crew.py`.
+3. Validate by running a mission and confirming the tool calls succeed (or fail with a meaningful MCP error).

@@ -73,12 +73,14 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     align-items: center;
     gap: 1.5rem;
     flex-wrap: wrap;
+    justify-content: flex-start;
 }
 
 .app-logo {
-    height: 140px; /* Increased height significantly for aesthetic visibility */
+    height: auto;
     width: auto; 
-    max-width: 250px; /* Allow wider expansion */
+    max-height: 128px; /* Target desktop max-height */
+    max-width: 100%;
     object-fit: contain;
     mix-blend-mode: screen; 
     filter: drop-shadow(0 0 10px rgba(124, 140, 212, 0.4)); 
@@ -98,6 +100,7 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     font-size: 1.4rem;
     font-weight: 600;
     line-height: 1.2;
+    font-family: 'Orbitron', 'Space Grotesk', sans-serif;
 }
 .logo-text-group .tagline-sub { 
     color: #e0e0e0; 
@@ -106,6 +109,7 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     font-weight: 400;
     line-height: 1.2;
     opacity: 0.9;
+    font-family: 'Space Grotesk', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .header-actions {
@@ -115,7 +119,6 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     gap: 0.5rem;
     flex-wrap: wrap;
     width: 100%;
-    margin-top: -2.5rem; /* Pulls it up into the space below the text */
     position: relative;
     z-index: 10;
 }
@@ -163,12 +166,12 @@ h1, h2, h3, .neon-cyan, .neon-rose {
 @media (max-width: 768px) {
     .header-bar {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center; /* Center everything */
         padding: 1.5rem;
     }
     .logo-container {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
         gap: 1rem;
     }
     .logo-text-group {
@@ -176,9 +179,21 @@ h1, h2, h3, .neon-cyan, .neon-rose {
         padding-left: 0;
         border-top: 1px dashed var(--glass-border);
         padding-top: 1rem;
+        align-items: center;
+        text-align: center;
     }
     .app-logo {
-        width: 120px;
+        max-height: 96px; /* Tablet sizing */
+        width: auto;
+    }
+    .header-actions {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .app-logo {
+        max-height: 72px; /* Mobile sizing */
     }
 }
 .panel-header h2 { margin-bottom: 0.2rem; border-bottom: none; }

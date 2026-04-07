@@ -1,88 +1,60 @@
 # Archaion Architecture
 
 ## Overview
-- Purpose: Modernization analysis MVP that runs locally on Windows 11 and can be deployed to AWS Amplify Gen 2 with no architectural changes.
-- Core: Frontend (HTML + Tailwind CDN + Vanilla JS) and Backend (FastAPI) orchestrating CrewAI-style agents and integrating CAST Imaging MCP via HTTP.
-- LLM: litellm with Gemini 1.5 Pro as primary and OpenRouter fallback.
+- Purpose: Standalone modernization analysis app (UI + API on a single port) that runs locally and can be containerized with Docker.
+- Runtime: FastAPI backend serves static frontend assets and orchestrates a multi-step workflow that calls CAST Imaging MCP and (optionally) CrewAI.
+- LLM: Selected at runtime (OpenRouter/OpenAI/Gemini/Azure). When CrewAI cannot import/install, the flow can fall back to LiteLLM completions.
 
-## Components
-- Frontend UI: [index.html](file:///c:/Personal-docs/Archaion/Archaion/src/index.html), [main.js](file:///c:/Personal-docs/Archaion/Archaion/src/main.js)
-  - Renders portfolio, DNA badge, Cloud/Strategy selection, Analyze flow, and Markdown report with download.
-- Backend API: [handler.py](file:///c:/Personal-docs/Archaion/Archaion/amplify/functions/modernization-handler/handler.py)
-  - FastAPI app exposing /health, /applications, /dna, /analyze.
-  - MCP client calls CAST Imaging MCP tools with X-API-KEY header.
-  - Lifespan management for clean httpx client setup/teardown.
-- Amplify Function Definition: [resource.ts](file:///c:/Personal-docs/Archaion/Archaion/amplify/functions/modernization-handler/resource.ts)
-  - Exports a Gen 2 function (Python 3.11 runtime) pointing to handler.handler.
-  - Local bundling installs Python dependencies and copies sources for deployment packaging.
-- Orchestration (Agents): [crew.py](file:///c:/Personal-docs/Archaion/Archaion/amplify/functions/modernization-handler/crew.py)
-  - Discovery Specialist, Architecture Analyst, Cloud Architect, conditional Mainframe Specialist.
-  - Produces consolidated Markdown report from MCP data + LLM outputs.
-- LLM Wrapper: [llm.py](file:///c:/Personal-docs/Archaion/Archaion/amplify/functions/modernization-handler/llm.py)
-  - Async generate with Gemini first, falls back to OpenRouter if unavailable or error.
-- Windows Tools & Local Runner: [setup_windows.ps1](file:///c:/Personal-docs/Archaion/Archaion/setup_windows.ps1), [run_local.py](file:///c:/Personal-docs/Archaion/Archaion/run_local.py)
-  - Creates/activates venv, installs dependencies; launches FastAPI locally with permissive CORS.
-- Tests: [test_suite.py](file:///c:/Personal-docs/Archaion/Archaion/test_suite.py)
-  - Deterministic validation paths for WebGoat_v3 (Java) and HRMGMT_COB (Mainframe) using mocked MCP/LLM.
-- Configuration: [.env.template](file:///c:/Personal-docs/Archaion/Archaion/.env.template)
-  - CAST_MCP_URL, CAST_X_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY (no secrets committed).
+## Repository Layout (Current)
+- Frontend (static): [index.html](file:///c:/Personal-docs/Archaion/Archaion/app/frontend/index.html), [main.js](file:///c:/Personal-docs/Archaion/Archaion/app/frontend/main.js), [style.css](file:///c:/Personal-docs/Archaion/Archaion/app/frontend/style.css)
+- Backend (FastAPI): [main.py](file:///c:/Personal-docs/Archaion/Archaion/app/backend/main.py)
+- Workflow/state machine: [modernization_flow.py](file:///c:/Personal-docs/Archaion/Archaion/app/flows/modernization_flow.py)
+- CrewAI multi-agent assembly: [crew.py](file:///c:/Personal-docs/Archaion/Archaion/app/backend/crew.py)
+- CrewAI MCP tool adapter: [mcp_tools.py](file:///c:/Personal-docs/Archaion/Archaion/app/tools/mcp_tools.py)
+- Agent/task YAML (future-friendly): [agents.yaml](file:///c:/Personal-docs/Archaion/Archaion/app/agents/config/agents.yaml), [tasks.yaml](file:///c:/Personal-docs/Archaion/Archaion/app/agents/config/tasks.yaml)
+- Container setup: [Dockerfile](file:///c:/Personal-docs/Archaion/Archaion/Dockerfile), [docker-compose.yml](file:///c:/Personal-docs/Archaion/Archaion/docker-compose.yml)
+- Dependency lock (important): [requirements.txt](file:///c:/Personal-docs/Archaion/Archaion/requirements.txt)
 
-## Data Flow
-- Portfolio View
-  - UI loads → calls /applications → backend invokes MCP tool “list_applications” → returns list of apps → user selects via radio.
-- DNA Prefetch
-  - Selection → UI calls /dna?app_id=… → backend invokes MCP “statistics” → returns tech stack and LoC → UI renders DNA Badge.
-- Modernization Analyze
-  - UI posts {app_id, cloud_strategy} to /analyze → backend:
-    - statistics → get DNA + mainframe flag
-    - architectural_graph → topology
-    - transaction_summary → transaction overview
-    - advisors → maps structural facts to cloud services
-    - crew agents use llm.generate to produce narrative → returns consolidated JSON + Markdown.
+## High-Level Data Flow
+- Portfolio discovery
+  - UI calls `/applications`
+  - Backend calls CAST MCP tool `applications`
+  - UI renders selectable portfolio
+- DNA profiling
+  - UI calls `/dna?app_id=...`
+  - Backend calls CAST MCP tool `stats` (and may call other tools depending on implementation)
+  - UI renders “DNA” view for the selected application
+- Mission execution
+  - UI posts mission params to `/analyze`
+  - Backend builds an inputs payload (DNA, ISO 5055 flaws, user choices)
+  - Backend runs CrewAI kickoff (threaded) and streams status updates to the UI
+  - Backend returns mission report + validation report and enables DOCX export
 
-## Backend Endpoints
-- GET /health → status ok
-- GET /applications → MCP list_applications
-- GET /dna?app_id=… → MCP statistics
-- POST /analyze { app_id, cloud_strategy } → orchestration + markdown
+## Backend Endpoints (Current)
+- GET `/config` → server defaults (e.g., default MCP URL)
+- GET `/applications` → portfolio list via MCP
+- GET `/dna?app_id=...` → profile via MCP
+- POST `/analyze` → orchestrates mission (MCP + CrewAI/LiteLLM)
+- GET `/download-docx` → converts generated Markdown to DOCX
 
-## MCP Integration
-- HTTP calls to CAST_MCP_URL with header “X-API-KEY: CAST_X_API_KEY”.
-- Tools used: list_applications, statistics, architectural_graph, transaction_summary, advisors.
-- Implementation avoids logging secrets and handles HTTP/network errors.
+## MCP Integration Details
+- Transport: HTTP via the MCP Python client session in [main.py](file:///c:/Personal-docs/Archaion/Archaion/app/backend/main.py)
+- Auth: request header `x-api-key: <CAST_X_API_KEY>`
+- Notable tool name mapping:
+  - UI refers to `iso-5055-flaws`, backend maps it to MCP tool `iso_5055_flaws`
 
-## LLM Strategy
-- litellm acompletion:
-  - Primary: Gemini 1.5 Pro (model: gemini/gemini-1.5-pro).
-  - Fallback: OpenRouter (model: openrouter/google/gemini-1.5-pro or compatible).
-- Secrets loaded via environment; never logged.
+## LLM Integration Details
+- CrewAI path: [crew.py](file:///c:/Personal-docs/Archaion/Archaion/app/backend/crew.py) configures the LLM per provider.
+- Manager model: Uses the same LLM as the selected provider/model to avoid OpenRouter “missing endpoint” errors for unrelated providers.
+- Fallback: [modernization_flow.py](file:///c:/Personal-docs/Archaion/Archaion/app/flows/modernization_flow.py) can call `litellm.acompletion` when CrewAI is unavailable.
 
-## CORS & Security
-- Backend adds permissive CORS during local development to allow UI from file:// or localhost origins.
-- No secrets committed; .env used to supply runtime values.
-- HTTP errors surfaced without sensitive data.
+## Security Model (Local)
+- Keys are entered in the UI and stored in browser localStorage.
+- Server does not persist keys; it receives them via request headers/body and uses them for the request lifecycle.
+- Backend avoids logging secrets; errors are returned as safe messages.
 
-## Deployment Topology
-- Local
-  - run_local.py imports FastAPI app from handler.py; venv holds dependencies; UI consumes local endpoints.
-- AWS Amplify Gen 2
-  - resource.ts defines Python Lambda entry (handler.handler) and bundling for dependencies.
-  - Amplify project wires the function into the backend definition; environment variables set at Amplify environment level (CAST_MCP_URL, CAST_X_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY).
-
-## Testing & Validation
-- test_suite.py validates:
-  - Portfolio shape ({id,name})
-  - DNA (“Java” for WebGoat_v3; “COBOL/JCL” for HRMGMT_COB)
-  - Analyze: presence/absence of “Mainframe Modernization” depending on DNA
-- Health endpoint: GET /health returns {"status":"ok"}.
-
-## Error Handling
-- MCP client wraps httpx errors:
-  - HTTPStatusError → upstream status
-  - RequestError → 502
-- /analyze orchestrator continues unless a required MCP call fails; failures return safe messages.
-
-## Extensibility
-- Add more agents for quality, security, or cost analysis.
-- Enrich MCP adapters for additional tools/endpoints.
-- Introduce tracing/metrics (e.g., OpenTelemetry) in handler.py if needed.
+## Validation & Maintenance
+- Fast import/bytecode checks:
+  - `python -c "from app.backend.main import app; print('ok')"`
+  - `python -m compileall app -q`
+- If changing LLM providers/models, validate by running a mission and confirming the “CrewAI Agents started processing” step completes without provider errors.

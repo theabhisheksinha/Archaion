@@ -5,25 +5,17 @@ import logging
 import litellm
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
-import textwrap
 
 litellm.set_verbose = True
 logger = logging.getLogger("archaion.flow")
 logger.setLevel(logging.DEBUG)
 
-# Fallback imports if crewai isn't installed locally (e.g. Windows Python 3.14)
-# Docker environment (Python 3.11) will use the actual crewai package
 try:
-    from crewai import Agent, Crew, Process, Task, LLM
-    from crewai.project import CrewBase, agent, crew, task
+    from app.backend.crew import ModernizationCrew
     CREWAI_AVAILABLE = True
 except ImportError:
     CREWAI_AVAILABLE = False
-    def CrewBase(cls): return cls
-    def agent(func): return func
-    def crew(func): return func
-    def task(func): return func
-    Agent = Task = Crew = Process = LLM = type("Dummy", (), {})
+    ModernizationCrew = type("Dummy", (), {})
 
 class ModernizationState(BaseModel):
     portfolio: List[Dict[str, Any]] = []
@@ -34,72 +26,6 @@ class ModernizationState(BaseModel):
     mission_report: Optional[str] = None
     validation_report: Optional[str] = None
     status_updates: List[str] = []
-
-@CrewBase
-class ModernizationCrew:
-    """Modernization Crew adhering to strict CrewAI Framework Compliance"""
-    
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../agents/config'))
-    agents_config = os.path.join(base_dir, 'agents.yaml')
-    tasks_config = os.path.join(base_dir, 'tasks.yaml')
-
-    def __init__(self, llm_provider: str, llm_key: str):
-        # Configure LLM dynamically per request using UI-provided credentials
-        if llm_provider == "openrouter":
-            model = "openrouter/google/gemini-2.5-flash"
-        elif llm_provider == "openai":
-            model = "gpt-4o"
-        elif llm_provider == "gemini":
-            model = "gemini/gemini-1.5-pro"
-        elif llm_provider == "azure":
-            model = "azure/gpt-4o"
-        else:
-            model = "openrouter/google/gemini-2.5-flash"
-            
-        if CREWAI_AVAILABLE:
-            try:
-                self.llm = LLM(model=model, api_key=llm_key)
-            except Exception:
-                self.llm = None
-        else:
-            self.llm = None
-
-    @agent
-    def micro2mono_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['micro2mono_agent'],
-            llm=self.llm,
-            verbose=True
-        )
-
-    @agent
-    def validator_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['validator_agent'],
-            llm=self.llm,
-            verbose=True
-        )
-
-    @task
-    def decomposition_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['decomposition_task']
-        )
-
-    @task
-    def validation_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['validation_task']
-        )
-
-    @crew
-    def crew(self) -> Crew:
-        return Crew(
-            agents=self.agents,
-            tasks=self.tasks,
-            process=Process.sequential,
-            verbose=True
-        )
 
 class ModernizationFlow:
     """
@@ -166,12 +92,16 @@ class ModernizationFlow:
         
         # 3. Prepare Inputs
         inputs = {
+            "app_name": self.state.selected_app_id,
             "dna_profile": json.dumps(self.state.dna_profile, indent=2),
-            "goal": params.get('goal', 'Modernize'),
-            "target_framework": params.get('target_framework', 'Spring Boot'),
-            "compliance": params.get('compliance', 'None'),
-            "risk_profile": params.get('risk_profile', 'Medium'),
-            "refactoring_depth": params.get('refactoring_depth', 'Moderate'),
+            "objective": params.get('objective', 'Modernize'),
+            "goal": params.get('goal', 'Mono2Micro'),
+            "strategy": params.get('strategy', 'Containerization'),
+            "risk_profile": params.get('risk_profile', 'ISO-5055 only'),
+            "vulnerabilities": params.get('vulnerabilities', 'Both'),
+            "db_migration": params.get('db_migration', 'No Migration'),
+            "rewrite_mainframe": params.get('rewrite_mainframe', ''),
+            "target_lang": params.get('target_lang', ''),
             "iso_5055_flaws": flaws_text
         }
         
@@ -195,20 +125,59 @@ class ModernizationFlow:
                 self.state.validation_report = "Error"
         else:
             try:
-                # Instantiate Crew with dynamic LLM keys
-                crew_instance = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key).crew()
+                loop = asyncio.get_running_loop()
+                
+                def crew_step_callback(step_output):
+                    # step_output is an AgentStep or similar
+                    if hasattr(step_output, 'agent'):
+                        agent_name = step_output.agent
+                        thought = getattr(step_output, 'thought', str(step_output))
+                        self.push_update(f"{agent_name}: {thought}")
+                    else:
+                        self.push_update(f"Agent Action: {str(step_output)}")
+
+                # Instantiate Crew with dynamic LLM keys, MCP client, and current event loop
+                crew_instance = ModernizationCrew(
+                    llm_provider=llm_provider, 
+                    llm_key=llm_key,
+                    mcp_client=self.mcp_client,
+                    loop=loop,
+                    step_callback=crew_step_callback
+                ).crew()
                 
                 # Run crewai kick_off in a thread to prevent blocking the asyncio loop
-                result = await asyncio.to_thread(crew_instance.kickoff, inputs=inputs)
+                try:
+                    result = await asyncio.to_thread(crew_instance.kickoff, inputs=inputs)
+                except TypeError:
+                    # Older CrewAI versions may not accept keyword args
+                    result = await asyncio.to_thread(crew_instance.kickoff)
                 
-                # Extract task outputs
-                tasks_output = result.tasks_output
-                if len(tasks_output) >= 2:
-                    self.state.mission_report = tasks_output[0].raw
-                    self.state.validation_report = tasks_output[1].raw
+                tasks_output = getattr(result, "tasks_output", None)
+                mission_parts: List[str] = []
+                validation_text: Optional[str] = None
+
+                if isinstance(tasks_output, (list, tuple)) and tasks_output:
+                    raws: List[str] = []
+                    for t in tasks_output:
+                        raw_val = getattr(t, "raw", None)
+                        if raw_val is None:
+                            raw_val = getattr(t, "result", None)
+                        raws.append(str(raw_val) if raw_val is not None else str(t))
+
+                    if len(raws) >= 4:
+                        mission_parts = [raws[0], raws[1], raws[2]]
+                        validation_text = raws[3]
+                    elif len(raws) >= 2:
+                        mission_parts = [raws[0]]
+                        validation_text = raws[1]
+                    else:
+                        mission_parts = [raws[0]]
                 else:
-                    self.state.mission_report = result.raw
-                    self.state.validation_report = "Validation integrated in the report."
+                    raw_val = getattr(result, "raw", None)
+                    mission_parts = [str(raw_val) if raw_val is not None else str(result)]
+
+                self.state.mission_report = "\n\n".join([p for p in mission_parts if p]).strip()
+                self.state.validation_report = (validation_text or "").strip() or "Validation integrated in the report."
                     
             except Exception as e:
                 self.push_update(f"CrewAI Error: {str(e)}")

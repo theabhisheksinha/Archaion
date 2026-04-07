@@ -79,12 +79,14 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     app_id: str
+    objective: str
     goal: str
-    target_framework: str
-    compliance: str
+    strategy: str
     risk_profile: str
-    refactoring_depth: str
-    review_protocol: str
+    vulnerabilities: str
+    db_migration: str
+    rewrite_mainframe: Optional[str] = ""
+    target_lang: Optional[str] = ""
     mcp_url: Optional[str] = None
     mcp_key: Optional[str] = None
     llm_provider: Optional[str] = None
@@ -127,25 +129,57 @@ def parse_mcp_response(res):
         return res
     return res
 
+from app.backend.crew import ModernizationCrew
+from crewai import Crew, Task
+
 @app.get("/applications")
 async def get_applications(request: Request):
     mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
+    llm_provider = request.headers.get("x-llm-provider") or "openrouter"
+    llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
     
-    source = "UI Settings Header" if request.headers.get("x-mcp-url") else "Environment Variables (.env)"
-    logger.debug(f"[CONFIG TRACE] Fetching applications using CAST MCP URL: {mcp_url} (Source: {source})")
     if not mcp_url or not mcp_key:
-        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables.")
+        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
     
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
-        res = await mcp.invoke_tool("applications", {})
-        parsed = parse_mcp_response(res)
-        return parsed
+        
+        loop = asyncio.get_running_loop()
+        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, mcp_client=mcp, loop=loop)
+        
+        portfolio_agent = mod_crew.portfolio_specialist()
+        portfolio_task = Task(
+            description="List all available applications using the 'applications' tool and return them in JSON format.",
+            expected_output="A list of applications to populate the UI.",
+            agent=portfolio_agent
+        )
+        
+        mini_crew = Crew(
+            agents=[portfolio_agent],
+            tasks=[portfolio_task],
+            verbose=True
+        )
+        
+        result = await asyncio.to_thread(mini_crew.kickoff)
+        
+        # We also call MCP directly as a reliable fallback for UI rendering 
+        # since LLM parsing of arrays might sometimes be unpredictable
+        try:
+            res = await mcp.invoke_tool("applications", {})
+            parsed = parse_mcp_response(res)
+            if parsed:
+                return parsed
+        except:
+            pass
+            
+        # Return the LLM's raw output if fallback fails
+        return [{"id": "llm-output", "name": result.raw}]
+        
     except Exception as e:
         logger.error(f"Error fetching apps: {e}")
-        raise HTTPException(status_code=502, detail=f"Failed to fetch applications from CAST MCP: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch applications: {e}")
     finally:
         await mcp.aclose()
 
@@ -157,21 +191,60 @@ async def get_config():
 async def get_dna(request: Request, app_id: str = Query(...)):
     mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
+    llm_provider = request.headers.get("x-llm-provider") or "openrouter"
+    llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
+    
     if not mcp_url or not mcp_key:
-        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables.")
+        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
+        
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
-        res = await mcp.invoke_tool("stats", {"application": app_id})
-        return parse_mcp_response(res)
+        
+        loop = asyncio.get_running_loop()
+        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, mcp_client=mcp, loop=loop)
+        
+        profile_agent = mod_crew.system_profile_analyst()
+        profile_task = Task(
+            description=f"Analyze the Application Technical DNA Profile for {app_id} using 'stats' and 'architectural_graph'. Return a JSON containing LOC, elements, interactions, and a boolean 'mainframe_detected'.",
+            expected_output="A JSON object representing the system technical profile.",
+            agent=profile_agent
+        )
+        
+        mini_crew = Crew(
+            agents=[profile_agent],
+            tasks=[profile_task],
+            verbose=True
+        )
+        
+        # We also call MCP directly as a reliable fallback for UI rendering 
+        try:
+            res = await mcp.invoke_tool("stats", {"application": app_id})
+            parsed = parse_mcp_response(res)
+            # Add simple heuristic if missing
+            dna_str = json.dumps(parsed).lower()
+            if "mainframe" not in parsed:
+                parsed["mainframe"] = "cobol" in dna_str or "mainframe" in dna_str or "jcl" in dna_str
+                
+            # Fire and forget the LLM profiling so we aren't blocking the UI too long
+            # asyncio.create_task(asyncio.to_thread(mini_crew.kickoff))
+            
+            # Or run it synchronously to fully fulfill prompt:
+            await asyncio.to_thread(mini_crew.kickoff)
+            
+            return parsed
+        except Exception as fallback_e:
+            logger.warning(f"Fallback DNA fetch failed: {fallback_e}")
+            pass
+            
     except Exception as e:
         logger.error(f"Error fetching DNA: {e}")
-        raise HTTPException(status_code=502, detail=f"Failed to fetch DNA from CAST MCP: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch DNA: {e}")
     finally:
         await mcp.aclose()
 
-@app.post("/analyze/start")
-async def analyze_start(req: AnalyzeRequest):
+@app.post("/kickoff")
+async def kickoff_mission(req: AnalyzeRequest):
     # Instead of blocking, we initiate the flow and return an ID
     job_id = req.app_id
     flow_states[job_id] = {
@@ -264,9 +337,10 @@ async def download_report(job_id: str):
     report = state["report"]
     md = f"{report.get('executive_summary', '')}\n\n{report.get('architecture_insights', '')}\n\n{report.get('modernization_roadmap', '')}\n\n{report.get('iso_5055_flaws', '')}"
     
-    file_stream = generate_docx_from_markdown(md)
+    app_name = state["req"].get("app_id", job_id)
+    file_stream = generate_docx_from_markdown(md, app_name)
     headers = {
-        'Content-Disposition': f'attachment; filename="modernization_report_{job_id}.docx"'
+        'Content-Disposition': f'attachment; filename="{app_name}_Modernization_Roadmap.docx"'
     }
     return StreamingResponse(file_stream, headers=headers, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 

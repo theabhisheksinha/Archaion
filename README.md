@@ -102,117 +102,85 @@ Archaion uses generative AI to analyze the architectural statistics and generate
 
 ## 🚀 How to Install and Run
 
-There are two main ways to run this application. You can use **Docker** (the easiest and most reliable method), or you can install it directly onto your computer (**Local Setup**).
+There are two main ways to run this application: **Local Setup** and **Docker**.
 
-### Method 1: Running with Docker (Recommended for all platforms)
-Docker packages the application so you don't have to worry about installing the right version of Python.
+### Method 1: Local Installation (Python Virtual Environment + FastAPI Dev)
 
 **Requirements:**
-- Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+- Python 3.11 or 3.12 installed on your computer (Windows: use the `py` launcher).
+- PowerShell 7+ recommended on Windows.
 
-#### Option A: Run the Published Docker Image (Docker Hub)
-If you want the simplest experience (no source build), use the published image:
+1. Open your terminal or PowerShell and navigate to the Archaion folder.
+2. Create and activate a Python virtual environment. **Use Python 3.11/3.12. Avoid Python 3.14 for this project.**
+   ```bash
+   # Windows (force Python 3.12 via launcher)
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
 
+   # macOS/Linux (python3 must point to 3.11 or 3.12)
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install the dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+   If you see it trying to install into a global interpreter (example: `Python314\\site-packages`), you are not using the venv interpreter. Use:
+   ```bash
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+4. Run the FastAPI development server:
+   ```bash
+   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999
+   # Or (auto-reload for development)
+   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999 --reload
+   ```
+5. Open your web browser and go to: `http://localhost:9999`
+
+---
+
+## 🧩 Developer Notes (Build + Maintenance)
+
+### Python Dependencies That Matter
+- `crewai` currently imports `pkg_resources`, which is provided by `setuptools`.
+- This repository pins `setuptools==80.10.2` in [requirements.txt](requirements.txt) to keep `pkg_resources` available and avoid startup/import failures.
+
+### Known Runtime Errors & Fixes
+- **`ModuleNotFoundError: No module named 'pkg_resources'`**
+  - Install dependencies inside the venv and ensure `setuptools==80.10.2` is installed.
+- **`ImportError: cannot import name 'BaseTool' from crewai.tools`**
+  - Fixed in the codebase by importing `BaseTool` from the compatible CrewAI module path.
+- **OpenRouter 404: `No endpoints found for anthropic/claude-...`**
+  - Fixed in the codebase by not hardcoding an Anthropic manager model on OpenRouter. The manager LLM reuses the selected provider/model.
+- **Uvicorn starts slowly (tens of seconds)**
+  - Importing CrewAI + dependencies can be heavy on first run. Wait for “Uvicorn running on …” before testing endpoints.
+
+### Quick Sanity Checks
 ```bash
-docker pull theabhisheksinha/archaion-analyzer:latest
-docker run --rm -p 9999:9999 --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
+.\.venv\Scripts\python.exe -c "from app.backend.main import app; print('ok')"
+.\.venv\Scripts\python.exe -m compileall app -q
 ```
 
-Open your browser: `http://localhost:9999`
+---
 
-**Optional environment variables (fallback defaults):**
-If you want to provide defaults via `.env` (UI Settings still take priority):
+### Method 2: Running with Docker (Multi-stage Dockerfile & docker-compose)
 
-```bash
-docker run --rm -p 9999:9999 --env-file .env --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
-```
+This method packages both the UI and the Agentic Backend concurrently.
 
-#### Option B: Build \& Run from Source (Docker Compose)
-**Steps:**
-1. Open your computer's terminal (Command Prompt/PowerShell on Windows, or Terminal on Mac/Linux).
-2. Navigate to the Archaion project folder.
-3. *(Optional)* If you want to hardcode environment variables instead of using the UI, copy `.env.example` to `.env` and fill in your details.
-4. Run the following command:
+**Requirements:**
+- Docker and docker-compose installed.
+
+1. Open your terminal in the Archaion project folder.
+2. Run the following command to build and start the containers:
    ```bash
    docker-compose up --build -d
    ```
-5. Wait a minute for it to finish setting up.
-6. Open your web browser and go to: `http://localhost:9999`
-
-To stop the application, run `docker-compose down`.
-
----
-
-### 🏷️ Docker Image Tags
-Archaion follows a simple tagging strategy:
-- `latest`: Most recent stable release.
-- `0.1.0`: Immutable release tag (recommended for production pinning).
-- `0.1`: Optional rolling minor tag (points to the latest `0.1.x` release, if published).
-
----
-
-### Method 2: Local Installation (Without Docker)
-
-If you prefer not to use Docker, you can run the application directly using Python.
-
-**Requirements for all systems:**
-- You must have **Python 3.11 or 3.12** installed on your computer.
-- Avoid Python **3.13/3.14** for local installs right now, because some dependencies may not have prebuilt wheels yet and can require Rust/Cargo compilation.
-
-#### 🪟 Instructions for Windows:
-1. Open **PowerShell**.
-2. Navigate to the Archaion folder:
-   ```powershell
-   cd C:\path\to\Archaion
-   ```
-3. Confirm you have Python 3.11 or 3.12 available:
-   ```powershell
-   py -0p
-   ```
-4. (Recommended) Create the virtual environment using Python 3.12 (or use `-3.11` if that's what you have installed):
-   ```powershell
-   Remove-Item -Recurse -Force .\venv
-   py -3.12 -m venv venv
-   ```
-4. Activate the virtual environment:
-   ```powershell
-   .\venv\Scripts\Activate.ps1
-   ```
-   *(If you get a red error about "Execution Policies", run this command first: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` and try step 4 again).*
-5. Install the required files:
-   ```powershell
-   python -m pip install -U pip setuptools wheel
-   pip install -r requirements.txt
-   ```
-6. Start the application:
-   ```powershell
-   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999
-   ```
-7. Open your web browser and go to: `http://localhost:9999`
-
-#### 🍎 Instructions for macOS and Linux:
-1. Open the **Terminal**.
-2. Navigate to the Archaion folder:
+3. Wait a few moments for the services to initialize.
+4. Open your web browser and go to: `http://localhost:9999`
+5. To stop the application, run:
    ```bash
-   cd /path/to/Archaion
+   docker-compose down
    ```
-3. Create a virtual environment:
-   ```bash
-   python3 -m venv venv
-   ```
-4. Activate the virtual environment:
-   ```bash
-   source venv/bin/activate
-   ```
-5. Install the required files:
-   ```bash
-   pip install -r requirements.txt
-   ```
-6. Start the application:
-   ```bash
-   python -m uvicorn app.backend.main:app --host 0.0.0.0 --port 9999
-   ```
-7. Open your web browser and go to: `http://localhost:9999`
 
 ---
 

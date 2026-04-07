@@ -1,191 +1,270 @@
-from typing import Any, Dict, List, Optional
-from crewai import Agent, Task, Crew
-from .handler import _flatten_tool_result, _extract_error_message, _looks_like_app_item
+import os
+import json
+import asyncio
+import logging
+from typing import Dict, Any, List, Optional
+from crewai import Agent, Crew, Task
+from langchain_openai import ChatOpenAI
 
-# Agents
-PortfolioAgent = Agent(
-    role="Portfolio Agent",
-    goal="List available applications from MCP in normalized JSON [{id,name}]",
-    backstory="Calls MCP tools and normalizes output; filters out validation echoes.",
-    tools=[],
-    allow_delegation=False,
-)
+from app.tools.mcp_tools import create_mcp_tool
 
-ProfileAgent = Agent(
-    role="Profile Agent",
-    goal="Fetch Application Technical Profile via MCP stats and normalize fields, infer mainframe",
-    backstory="Reads stats tool and produces canonical profile fields.",
-    tools=[],
-    allow_delegation=False,
-)
+logger = logging.getLogger("archaion.crew")
 
-ManagerAgent = Agent(
-    role="Manager Agent",
-    goal="Orchestrate specialists and produce consolidated Markdown + JSON sections",
-    backstory="Delegates to specialists and merges final result for UI.",
-    tools=[],
-    allow_delegation=True,
-)
-
-ArchitectureAgent = Agent(
-    role="Architecture Specialist",
-    goal="Blueprint and boundary notes based on trajectory",
-    tools=[],
-    allow_delegation=False,
-)
-
-DataSovereigntyAgent = Agent(
-    role="Data Specialist",
-    goal="DB decomposition and data strategy plan",
-    tools=[],
-    allow_delegation=False,
-)
-
-PlatformAgent = Agent(
-    role="Platform Specialist",
-    goal="Containerization/Kubernetes/PaaS plan based on ambition",
-    tools=[],
-    allow_delegation=False,
-)
-
-CloudStrategyAgent = Agent(
-    role="Cloud Specialist",
-    goal="Pattern-driven cloud service mapping",
-    tools=[],
-    allow_delegation=False,
-)
-
-MainframeRewriteAgent = Agent(
-    role="Mainframe Rewrite Specialist",
-    goal="Rewrite plan (target language, batch handling, depth)",
-    tools=[],
-    allow_delegation=False,
-)
-
-
-def _infer_mainframe(obj: Dict[str, Any]) -> bool:
-    if not isinstance(obj, dict):
-        return False
-    if bool(obj.get("mainframe")):
-        return True
-    platforms = obj.get("platforms")
-    if isinstance(platforms, dict) and bool(platforms.get("mainframe")):
-        return True
-    keywords = {
-        "mainframe", "cobol", "jcl", "cics", "ims", "db2", "vsam", "z/os", "zos",
-        "pl/i", "pli", "pl1", "natural", "adabas", "rpg", "as/400", "as400", "ibm i", "ibm z"
+class ModernizationCrew:
+    _AGENTS: Dict[str, Dict[str, str]] = {
+        "portfolio_specialist": {
+            "role": "Discovery Analyst",
+            "goal": "Populate the UI with available applications upon initial load.",
+            "backstory": "Senior IT Asset Manager. You ensure the interface represents the ground truth of the scanned portfolio.",
+        },
+        "system_profile_analyst": {
+            "role": "Technical Profiler",
+            "goal": "Generate the System Technical Profile for the selected application.",
+            "backstory": "Architectural Archaeologist. You extract facts (LOC, interactions, stack) to ground the crew's reasoning.",
+        },
+        "transformation_manager": {
+            "role": "Orchestrator Agent",
+            "goal": "Synthesize user input (objective: {objective}, goal: {goal}, strategy: {strategy}) and delegate to specialists.",
+            "backstory": "Modernization Program Director. You coordinate the Mission and ensure the final Word report is actionable.",
+        },
+        "data_architect": {
+            "role": "DB Specialist",
+            "goal": "Design the {db_migration} plan and map CRUD interaction hotspots.",
+            "backstory": "Data Sovereignty Lead. You use deterministic schema maps to propose per-service database splits.",
+        },
+        "logic_specialist": {
+            "role": "Legacy Transformation specialist",
+            "goal": "Trace functional clusters and Mainframe {rewrite_mainframe} logic paths.",
+            "backstory": "Senior Modernization Engineer. You trace JCL/COBOL paths back to cloud-native triggers.",
+        },
+        "risk_auditor": {
+            "role": "Quality Specialist",
+            "goal": "Audit the proposed architecture for ISO 5055 compliance (Security/Reliability).",
+            "backstory": "Software Integrity Auditor. You ensure the new microservices are born clean and free of legacy vulnerabilities.",
+        },
     }
-    for k in ("technologies", "element_types"):
-        v = obj.get(k)
-        if isinstance(v, list):
-            for item in v:
-                if isinstance(item, str):
-                    s = item.strip().lower()
-                    if any(kw in s for kw in keywords):
-                        return True
-    tech = obj.get("technologies")
-    if isinstance(tech, dict):
-        langs = tech.get("languages")
-        if isinstance(langs, list):
-            for item in langs:
-                if isinstance(item, str):
-                    s = item.strip().lower()
-                    if any(kw in s for kw in keywords):
-                        return True
-    return False
 
-
-def run_list_apps(mcp_client) -> List[Dict[str, str]]:
-    # Crew wrapper (semantic) — execution delegates to MCP client for reliability
-    crew = Crew(agents=[PortfolioAgent], tasks=[Task(description="List applications", agent=PortfolioAgent)])
-    _ = crew.kickoff()
-    res_primary = mcp_client.invoke_tool("applications", {})
-    apps_primary = _flatten_tool_result(res_primary)
-    if apps_primary:
-        err = _extract_error_message(apps_primary)
-        if err and not any(_looks_like_app_item(x) for x in apps_primary):
-            raise RuntimeError(err)
-        norm: List[Dict[str, str]] = []
-        for a in apps_primary:
-            if isinstance(a, dict):
-                aid = a.get("id") or a.get("application_id") or a.get("applicationId")
-                aname = a.get("name") or a.get("application_name") or a.get("applicationName") or a.get("displayName")
-                if aname and not aid:
-                    aid = aname
-                if aid or aname:
-                    norm.append({"id": aid or "", "name": aname or str(aid or "")})
-            elif isinstance(a, str):
-                norm.append({"id": a, "name": a})
-        return norm
-    return []
-
-
-def run_profile(mcp_client, app_id: str) -> Dict[str, Any]:
-    crew = Crew(agents=[ProfileAgent], tasks=[Task(description=f"Profile {app_id}", agent=ProfileAgent)])
-    _ = crew.kickoff()
-    res = mcp_client.invoke_tool("stats", {"app_id": app_id})
-    flat = _flatten_tool_result(res)
-    err = _extract_error_message(flat if flat else res)
-    if err and not any(_looks_like_app_item(x) for x in flat):
-        raise RuntimeError(err)
-    # Heuristic: prefer dict payloads; if list, take first dict-like
-    data = None
-    if isinstance(res, dict):
-        data = res
-    elif isinstance(res, list) and res:
-        first = res[0]
-        if isinstance(first, dict):
-            data = first
-    if not isinstance(data, dict):
-        data = {}
-    inferred = _infer_mainframe(data)
-    platforms = data.get("platforms") or {}
-    if not isinstance(platforms, dict):
-        platforms = {}
-    platforms.setdefault("mainframe", inferred)
-    data["platforms"] = platforms
-    data.setdefault("mainframe", inferred)
-    return data
-
-
-def run_mission(profile: Dict[str, Any], mission: Dict[str, Any]) -> Dict[str, Any]:
-    # Create specialist tasks (semantic) but merge deterministically here
-    tasks = [
-        Task(description=f"Architecture trajectory={mission.get('trajectory')}", agent=ArchitectureAgent),
-        Task(description=f"Data sovereignty={mission.get('data_sov')}", agent=DataSovereigntyAgent),
-        Task(description=f"Platform ambition={mission.get('ambition')}", agent=PlatformAgent),
-        Task(description=f"Cloud pattern={mission.get('pattern')} target={mission.get('target_cloud')}", agent=CloudStrategyAgent),
-    ]
-    if bool(mission.get("rewrite_mainframe")):
-        tasks.append(Task(description=f"Mainframe rewrite target={mission.get('target_lang')} batch={mission.get('batch_handling')} depth={mission.get('extraction_depth')}", agent=MainframeRewriteAgent))
-    crew = Crew(
-        agents=[ManagerAgent, ArchitectureAgent, DataSovereigntyAgent, PlatformAgent, CloudStrategyAgent, MainframeRewriteAgent],
-        tasks=tasks
-    )
-    _ = crew.kickoff()
-    app_name = (profile.get("name") or profile.get("app_id") or mission.get("name") or "").strip()
-    tech = ", ".join(profile.get("technologies") or []) if isinstance(profile.get("technologies"), list) else str(profile.get("technologies") or "")
-    loc = profile.get("nb_LOC") or profile.get("nb_LOC_value") or profile.get("loc") or 0
-    try:
-        loc_int = int(loc)
-    except Exception:
-        loc_int = 0
-    pattern = mission.get("pattern") or ""
-    target_cloud = mission.get("target_cloud") or ""
-    rewrite_flag = bool(mission.get("rewrite_mainframe"))
-    summary = f"# Modernization Mission for {app_name}\n\n- Tech Stack: {tech}\n- LOC: {loc_int:,}\n- Pattern: {pattern}\n" + (f"- Target Cloud: {target_cloud}\n" if target_cloud else "") + (f"- Rewrite Mainframe: {'Yes' if rewrite_flag else 'No'}\n")
-    arch = f"## Architecture Insights\n\n- Trajectory: {mission.get('trajectory') or 'N/A'}\n- Recommended boundary mapping and service identification aligned with mission.\n"
-    data_plan = f"## Data Strategy\n\n- Strategy: {mission.get('data_sov') or 'N/A'}\n- DB decomposition and migration steps.\n"
-    platform = f"## Platform Modernization\n\n- Ambition: {mission.get('ambition') or 'N/A'}\n- Containerization/Kubernetes/PaaS recommendations.\n"
-    cloud = f"## Cloud Transformation\n\n- Pattern: {pattern}\n- Target: {target_cloud or 'N/A'}\n- Native service mapping aligned with mission.\n"
-    mf = ""
-    if rewrite_flag:
-        mf = f"## Mainframe Rewrite Plan\n\n- Target Language: {mission.get('target_lang') or 'N/A'}\n- Batch Handling: {mission.get('batch_handling') or 'N/A'}\n- Extraction Depth: {mission.get('extraction_depth') or 'N/A'}\n"
-    roadmap = "## Modernization Roadmap\n\n1. Baseline profile\n2. Boundary discovery\n3. Data alignment\n4. Platform modernization\n5. Cloud migration sequence\n"
-    report_md = "\n\n".join([summary, arch, data_plan, platform, cloud, mf, roadmap]).strip()
-    return {
-        "executive_summary": summary,
-        "architecture_insights": "\n\n".join([arch, data_plan, platform, cloud]).strip(),
-        "modernization_roadmap": roadmap,
-        "report_md": report_md,
+    _TASKS: Dict[str, Dict[str, str]] = {
+        "portfolio_task": {
+            "description": "Discover applications from the CAST Imaging MCP server using the 'applications' tool.",
+            "expected_output": "A list of applications to populate the UI.",
+            "agent": "portfolio_specialist",
+        },
+        "profile_task": {
+            "description": "Analyze the Application Technical DNA Profile:\n{dna_profile}\nExtract LOC, Elements, and Interactions. Check for Mainframe technology.",
+            "expected_output": "A system technical profile summary.",
+            "agent": "system_profile_analyst",
+        },
+        "orchestration_task": {
+            "description": (
+                "Coordinate the modernization mission for {app_name}.\n"
+                "Objective: {objective}\n"
+                "Goal: {goal}\n"
+                "Strategy: {strategy}\n"
+                "Target Language for Mainframe (if applicable): {target_lang}\n"
+                "Ensure the final report includes all 10 mandatory sections:\n"
+                "1. As-IS Architecture (Layering/Component structure)\n"
+                "2. Present Database Architecture\n"
+                "3. Database Access Patterns (CRUD hotspots)\n"
+                "4. API Inventory & Anomalies\n"
+                "5. Proposed Recommended Architecture (Microservices/Containerization)\n"
+                "6. Rationale (Why this recommendation?)\n"
+                "7. Mono2micro Decomposition (Code & DB refactoring steps)\n"
+                "8. Cloud Service Map (Target Cloud rationale)\n"
+                "9. Strategic Consulting Conclusion (Risk/ROI)\n"
+                "10. Disclaimer: \"This is an AI generated report using deterministic details for {app_name} from CAST Imaging through its MCP Server.\"\n\n"
+                "IMPORTANT: The final report must use specific Object IDs from the MCP tools as evidence for its refactoring recommendations."
+            ),
+            "expected_output": "A structured report outlining the modernization strategy, integrating inputs from all specialists, and strictly containing the 10 mandatory sections with Object ID evidence.",
+            "agent": "transformation_manager",
+        },
+        "data_architecture_task": {
+            "description": "Design the DB Migration plan based on {db_migration}. Map CRUD interaction hotspots.",
+            "expected_output": "Database architecture and access patterns sections.",
+            "agent": "data_architect",
+        },
+        "logic_transformation_task": {
+            "description": "Trace functional clusters and Mainframe logic paths based on {rewrite_mainframe} instructions.",
+            "expected_output": "Mono2micro decomposition and API inventory sections.",
+            "agent": "logic_specialist",
+        },
+        "risk_audit_task": {
+            "description": "Audit the proposed architecture considering {risk_profile} and {vulnerabilities}.\nConsider flaws: {iso_5055_flaws}",
+            "expected_output": "Strategic consulting conclusion (Risk/ROI) and compliance report.",
+            "agent": "risk_auditor",
+        },
     }
+
+    def __init__(self, llm_provider: str, llm_key: str, mcp_client: Any = None, loop: Any = None, step_callback: Any = None):
+        self.mcp_client = mcp_client
+        self.loop = loop
+        self.step_callback = step_callback
+        
+        try:
+            if llm_provider == "openrouter":
+                self.llm = ChatOpenAI(
+                    model="google/gemini-2.5-flash",
+                    api_key=llm_key,
+                    base_url="https://openrouter.ai/api/v1"
+                )
+            elif llm_provider == "openai":
+                self.llm = ChatOpenAI(model="gpt-4o", api_key=llm_key)
+            elif llm_provider == "gemini":
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                except Exception as e:
+                    raise RuntimeError("Missing dependency: langchain-google-genai") from e
+                self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=llm_key)
+            elif llm_provider == "azure":
+                self.llm = ChatOpenAI(model="gpt-4o", api_key=llm_key) # Requires full Azure setup in prod
+            else:
+                self.llm = ChatOpenAI(
+                    model="google/gemini-2.5-flash",
+                    api_key=llm_key,
+                    base_url="https://openrouter.ai/api/v1"
+                )
+        except Exception as e:
+            logger.warning(f"Error configuring LLM: {e}")
+            self.llm = None
+
+        self.manager_llm = self.llm
+
+    def _get_tool(self, name: str, desc: str):
+        if not self.mcp_client or not self.loop:
+            return None
+        return create_mcp_tool(name, desc, self.mcp_client, self.loop)
+
+    def portfolio_specialist(self) -> Agent:
+        tool = self._get_tool("applications", "List all available applications available in CAST Imaging.")
+        return Agent(
+            role=self._AGENTS["portfolio_specialist"]["role"],
+            goal=self._AGENTS["portfolio_specialist"]["goal"],
+            backstory=self._AGENTS["portfolio_specialist"]["backstory"],
+            llm=self.llm,
+            tools=[tool] if tool else [],
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    def system_profile_analyst(self) -> Agent:
+        tools = []
+        if self.mcp_client:
+            tools.append(self._get_tool("stats", "Get basic statistics for an application including size, complexity, and technology metrics."))
+            tools.append(self._get_tool("architectural_graph", "Visualize application architecture (nodes/links) at layer/component level."))
+        return Agent(
+            role=self._AGENTS["system_profile_analyst"]["role"],
+            goal=self._AGENTS["system_profile_analyst"]["goal"],
+            backstory=self._AGENTS["system_profile_analyst"]["backstory"],
+            llm=self.llm,
+            tools=tools,
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    def transformation_manager(self) -> Agent:
+        tools = []
+        if self.mcp_client:
+            tools.append(self._get_tool("advisors", "Get migration/modernization advisors, rules, and violations for an application."))
+            tools.append(self._get_tool("architectural_graph_focus", "Get architecture focused on specific components for exploring architecture around key areas."))
+        return Agent(
+            role=self._AGENTS["transformation_manager"]["role"],
+            goal=self._AGENTS["transformation_manager"]["goal"],
+            backstory=self._AGENTS["transformation_manager"]["backstory"],
+            llm=self.llm,
+            tools=tools,
+            verbose=True,
+            allow_delegation=True,
+        )
+
+    def data_architect(self) -> Agent:
+        tools = []
+        if self.mcp_client:
+            tools.append(self._get_tool("application_database_explorer", "Explore database tables and columns in an application."))
+            tools.append(self._get_tool("data_graphs", "Fetch data call graph views for an application."))
+            tools.append(self._get_tool("data_graphs_involving_object", "Find all data call graphs involving specific objects to trace data dependencies."))
+        return Agent(
+            role=self._AGENTS["data_architect"]["role"],
+            goal=self._AGENTS["data_architect"]["goal"],
+            backstory=self._AGENTS["data_architect"]["backstory"],
+            llm=self.llm,
+            tools=tools,
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    def logic_specialist(self) -> Agent:
+        tools = []
+        if self.mcp_client:
+            tools.append(self._get_tool("transactions", "Fetch transactions for an application with optional filtering capabilities by name or type."))
+            tools.append(self._get_tool("transaction_details", "Get comprehensive details about specific transactions including complexity, nodes, and links."))
+            tools.append(self._get_tool("transactions_using_object", "Identify all transactions that use a specific object."))
+        return Agent(
+            role=self._AGENTS["logic_specialist"]["role"],
+            goal=self._AGENTS["logic_specialist"]["goal"],
+            backstory=self._AGENTS["logic_specialist"]["backstory"],
+            llm=self.llm,
+            tools=tools,
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    def risk_auditor(self) -> Agent:
+        tools = []
+        if self.mcp_client:
+            tools.append(self._get_tool("application_iso_5055_explorer", "Explore ISO 5055 software quality characteristics and their associated weaknesses."))
+            tools.append(self._get_tool("quality_insights", "Retrieve quality issues including CVE, cloud patterns, green patterns, structural flaws, and ISO-5055 violations."))
+            tools.append(self._get_tool("quality_insight_violations", "Get detailed information about the occurrences for a particular quality-related insight type."))
+        return Agent(
+            role=self._AGENTS["risk_auditor"]["role"],
+            goal=self._AGENTS["risk_auditor"]["goal"],
+            backstory=self._AGENTS["risk_auditor"]["backstory"],
+            llm=self.llm,
+            tools=tools,
+            verbose=True,
+            allow_delegation=False,
+        )
+
+    def _task(self, task_key: str, agent: Agent) -> Task:
+        t = self._TASKS[task_key]
+        return Task(
+            description=t["description"],
+            expected_output=t["expected_output"],
+            agent=agent,
+        )
+
+    def crew(self) -> Crew:
+        agents = [
+            self.transformation_manager(),
+            self.data_architect(),
+            self.logic_specialist(),
+            self.risk_auditor(),
+        ]
+        tasks = [
+            self._task("orchestration_task", agents[0]),
+            self._task("data_architecture_task", agents[1]),
+            self._task("logic_transformation_task", agents[2]),
+            self._task("risk_audit_task", agents[3]),
+        ]
+
+        base_kwargs: Dict[str, Any] = {"agents": agents, "tasks": tasks, "verbose": True}
+
+        # Best-effort hierarchical process + manager_llm + step_callback, but stay compatible with older CrewAI.
+        try:
+            from crewai import Process  # type: ignore
+            base_kwargs["process"] = getattr(Process, "hierarchical", getattr(Process, "sequential", None))
+        except Exception:
+            pass
+
+        if self.manager_llm is not None:
+            base_kwargs["manager_llm"] = self.manager_llm
+
+        if self.step_callback is not None:
+            base_kwargs["step_callback"] = self.step_callback
+
+        try:
+            return Crew(**base_kwargs)
+        except TypeError:
+            base_kwargs.pop("step_callback", None)
+            base_kwargs.pop("manager_llm", None)
+            base_kwargs.pop("process", None)
+            return Crew(**base_kwargs)
