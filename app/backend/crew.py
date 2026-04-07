@@ -111,6 +111,7 @@ class ModernizationCrew:
         llm_key: str,
         llm_model: Optional[str] = None,
         enable_per_agent_models: bool = True,
+        app_name: Optional[str] = None,
         mcp_client: Any = None,
         loop: Any = None,
         step_callback: Any = None,
@@ -120,6 +121,7 @@ class ModernizationCrew:
         self.step_callback = step_callback
         self.llm_provider = llm_provider
         self.llm_key = llm_key
+        self.app_name = app_name
         self._llm_cache: Dict[str, Any] = {}
         self.model_overrides: Dict[str, str] = {}
         if self.llm_provider == "openrouter" and enable_per_agent_models:
@@ -133,12 +135,13 @@ class ModernizationCrew:
                 self.default_model = llm_model or "gpt-4o"
                 self.llm = ChatOpenAI(model=self.default_model, api_key=llm_key)
             elif llm_provider == "gemini":
-                try:
-                    from langchain_google_genai import ChatGoogleGenerativeAI
-                except Exception as e:
-                    raise RuntimeError("Missing dependency: langchain-google-genai") from e
-                self.default_model = llm_model or "gemini-1.5-pro"
-                self.llm = ChatGoogleGenerativeAI(model=self.default_model, google_api_key=llm_key)
+                from langchain_community.chat_models import ChatLiteLLM
+                self.default_model = llm_model or "gemini/gemini-1.5-pro"
+                self.llm = ChatLiteLLM(
+                    model=self.default_model,
+                    custom_llm_provider="gemini",
+                    model_kwargs={"api_key": llm_key},
+                )
             elif llm_provider == "azure":
                 self.default_model = llm_model or "gpt-4o"
                 self.llm = ChatOpenAI(model=self.default_model, api_key=llm_key)
@@ -176,7 +179,7 @@ class ModernizationCrew:
     def _get_tool(self, name: str, desc: str):
         if not self.mcp_client or not self.loop:
             return None
-        return create_mcp_tool(name, desc, self.mcp_client, self.loop)
+        return create_mcp_tool(name, desc, self.mcp_client, self.loop, default_application=self.app_name)
 
     def portfolio_specialist(self) -> Agent:
         tool = self._get_tool("applications", "List all available applications available in CAST Imaging.")

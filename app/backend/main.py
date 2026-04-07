@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 import json
 import logging
+from pathlib import Path
 import re
 from logging.handlers import RotatingFileHandler
 import asyncio
@@ -76,9 +77,16 @@ def _setup_logging() -> logging.Logger:
 
 logger = _setup_logging()
 
+def _normalize_mcp_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    s = str(url).strip()
+    s = s.strip("`'\"").strip()
+    return s.rstrip("/")
+
 class MCPServerHTTP:
     def __init__(self, base_url: str, api_key: str):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _normalize_mcp_url(base_url)
         self.headers = {"x-api-key": api_key, "Accept": "application/json, text/event-stream"}
         self._stack: Optional[AsyncExitStack] = None
         self._http: Optional[httpx.AsyncClient] = None
@@ -94,7 +102,10 @@ class MCPServerHTTP:
 
     async def aclose(self):
         if self._stack:
-            await self._stack.__aexit__(None, None, None)
+            try:
+                await self._stack.__aexit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"MCP shutdown failed: {e!r}")
 
     async def invoke_tool(self, tool: str, payload: dict) -> Any:
         if not self.session:
@@ -143,7 +154,7 @@ class AnalyzeRequest(BaseModel):
     llm_key: Optional[str] = None
     llm_model: Optional[str] = None
 
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.tools.document_generator import generate_docx_from_markdown
 
@@ -199,7 +210,7 @@ from crewai import Crew, Task
 
 @app.get("/applications")
 async def get_applications(request: Request):
-    mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
+    mcp_url = _normalize_mcp_url(request.headers.get("x-mcp-url") or CAST_MCP_URL)
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
     llm_provider = request.headers.get("x-llm-provider") or "openrouter"
     llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
@@ -247,15 +258,21 @@ async def get_applications(request: Request):
         logger.error(f"Error fetching apps: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to fetch applications: {e}")
     finally:
-        await mcp.aclose()
+        try:
+            await mcp.aclose()
+        except Exception as e:
+            logger.warning(f"MCP close failed in /applications: {e!r}")
 
 @app.get("/config")
 async def get_config():
-    return {"default_mcp_url": CAST_MCP_URL}
+    return {
+        "default_mcp_url": CAST_MCP_URL,
+        "server_has_mcp_key": bool(CAST_X_API_KEY),
+    }
 
 @app.get("/dna")
 async def get_dna(request: Request, app_id: str = Query(...)):
-    mcp_url = request.headers.get("x-mcp-url") or CAST_MCP_URL
+    mcp_url = _normalize_mcp_url(request.headers.get("x-mcp-url") or CAST_MCP_URL)
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
     llm_provider = request.headers.get("x-llm-provider") or "openrouter"
     llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
@@ -308,7 +325,10 @@ async def get_dna(request: Request, app_id: str = Query(...)):
         logger.error(f"Error fetching DNA: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to fetch DNA: {e}")
     finally:
-        await mcp.aclose()
+        try:
+            await mcp.aclose()
+        except Exception as e:
+            logger.warning(f"MCP close failed in /dna: {e!r}")
 
 @app.post("/kickoff")
 async def kickoff_mission(req: AnalyzeRequest):
@@ -333,7 +353,7 @@ async def analyze_stream(request: Request, job_id: str):
         req_data = state["req"]
         
         # Initialize and configure the flow
-        mcp_url = req_data.get("mcp_url") or CAST_MCP_URL
+        mcp_url = _normalize_mcp_url(req_data.get("mcp_url") or CAST_MCP_URL)
         mcp_key = req_data.get("mcp_key") or CAST_X_API_KEY
         if not mcp_url or not mcp_key:
             yield {"event": "error", "data": "Missing CAST MCP credentials. Set them in the UI Settings or provide CAST_MCP_URL and CAST_X_API_KEY via environment variables."}
@@ -386,10 +406,16 @@ async def analyze_stream(request: Request, job_id: str):
             }
             state["report"] = report
             state["status"] = "completed"
+            if isinstance(state.get("req"), dict):
+                state["req"].pop("mcp_key", None)
+                state["req"].pop("llm_key", None)
             
             yield {"event": "complete", "data": json.dumps(report)}
         except Exception as e:
             logger.exception("Analyze stream failed")
+            if isinstance(state.get("req"), dict):
+                state["req"].pop("mcp_key", None)
+                state["req"].pop("llm_key", None)
             yield {"event": "error", "data": f"Analyze stream failed: {e}"}
         finally:
             await mcp_client.aclose()
@@ -418,7 +444,17 @@ async def download_report(job_id: str):
     }
     return StreamingResponse(file_stream, headers=headers, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-# Serve the frontend statically at the root
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    ico_path = frontend_dir / "favicon.ico"
+    if ico_path.exists():
+        return FileResponse(str(ico_path), media_type="image/x-icon")
+    png_path = frontend_dir / "assets" / "Archaion - agentic platform.png"
+    if png_path.exists():
+        return FileResponse(str(png_path), media_type="image/png")
+    return Response(status_code=204)
+
 frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../frontend'))
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 

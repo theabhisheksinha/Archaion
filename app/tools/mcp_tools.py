@@ -1,7 +1,7 @@
 import json
 import asyncio
-from typing import Any, Type, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Type, Optional, Dict
+from pydantic import BaseModel, Field, ConfigDict
 try:
     from crewai.tools import BaseTool
 except Exception:
@@ -11,6 +11,7 @@ import logging
 logger = logging.getLogger("archaion.mcp_tools")
 
 class MCPToolInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
     tool_args: Optional[str] = Field(
         default="{}",
         description="JSON string representing the arguments for the MCP tool. Defaults to '{}' when omitted.",
@@ -24,6 +25,7 @@ class MCPToolWrapper(BaseTool):
     # We pass the async mcp client and event loop to run it
     mcp_client: Any = Field(exclude=True)
     loop: Any = Field(exclude=True)
+    default_application: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
         try:
@@ -38,6 +40,17 @@ class MCPToolWrapper(BaseTool):
                 payload = json.loads(tool_args)
         except Exception:
             payload = {}
+
+        if isinstance(payload, dict) and kwargs:
+            payload = {**payload, **kwargs}
+
+        if (
+            isinstance(payload, dict)
+            and self.default_application
+            and self.name != "applications"
+            and "application" not in payload
+        ):
+            payload["application"] = self.default_application
 
         try:
             # Execute the async method synchronously using the provided event loop
@@ -54,11 +67,18 @@ class MCPToolWrapper(BaseTool):
     async def _arun(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
         return self._run(tool_args=tool_args, **kwargs)
 
-def create_mcp_tool(tool_name: str, tool_description: str, mcp_client: Any, loop: Any) -> MCPToolWrapper:
+def create_mcp_tool(
+    tool_name: str,
+    tool_description: str,
+    mcp_client: Any,
+    loop: Any,
+    default_application: Optional[str] = None,
+) -> MCPToolWrapper:
     """Factory to create a CrewAI BaseTool wrapper for a specific MCP tool."""
     return MCPToolWrapper(
         name=tool_name,
         description=tool_description,
         mcp_client=mcp_client,
-        loop=loop
+        loop=loop,
+        default_application=default_application,
     )

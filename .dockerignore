@@ -8,3 +8,9 @@ __pycache__
 .coverage
 htmlcov
 logs
+test
+app/images
+*.log
+*.docx
+*.md
+LICENSE*

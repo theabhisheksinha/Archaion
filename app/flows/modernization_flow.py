@@ -118,7 +118,12 @@ class ModernizationFlow:
             # Fallback mock response for local testing if crewai couldn't install
             import litellm
             try:
-                model = "openrouter/google/gemini-2.5-flash" if llm_provider == "openrouter" else f"{llm_provider}/gpt-4o"
+                if llm_provider == "openrouter":
+                    model = "openrouter/google/gemini-2.5-flash"
+                elif llm_provider == "gemini":
+                    model = "gemini/gemini-1.5-pro"
+                else:
+                    model = f"{llm_provider}/gpt-4o"
                 response = await litellm.acompletion(
                     model=model,
                     messages=[{"role": "user", "content": f"Write a modernization plan for {self.state.selected_app_id} based on {inputs['goal']}"}],
@@ -160,6 +165,7 @@ class ModernizationFlow:
                             llm_key=llm_key,
                             llm_model=chosen_model,
                             enable_per_agent_models=(llm_provider == "openrouter"),
+                            app_name=self.state.selected_app_id,
                             mcp_client=self.mcp_client,
                             loop=loop,
                             step_callback=crew_step_callback,
@@ -182,6 +188,7 @@ class ModernizationFlow:
                                 llm_key=llm_key,
                                 llm_model=chosen_model,
                                 enable_per_agent_models=False,
+                                app_name=self.state.selected_app_id,
                                 mcp_client=self.mcp_client,
                                 loop=loop,
                                 step_callback=crew_step_callback,

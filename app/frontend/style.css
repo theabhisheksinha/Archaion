@@ -66,6 +66,7 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     flex-wrap: wrap;
     gap: 1.5rem;
     min-height: 120px; /* Slightly taller to accommodate the bigger logo */
+    position: relative;
 }
 
 .logo-container {
@@ -126,6 +127,9 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     justify-content: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
+    position: absolute;
+    right: 1.25rem;
+    bottom: 0.75rem;
 }
 
 .icon-btn {
@@ -198,6 +202,7 @@ h1, h2, h3, .neon-cyan, .neon-rose {
     }
     .header-actions {
         justify-content: center;
+        position: static;
     }
 }
 
@@ -420,6 +425,19 @@ button:hover {
 .glow-btn:hover {
     background: #6366f1;
     border-color: #6366f1;
+    box-shadow: none;
+}
+
+.danger-btn {
+    border-color: #ef4444;
+    color: #ffffff;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.danger-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+    color: #ffffff;
     box-shadow: none;
 }
 

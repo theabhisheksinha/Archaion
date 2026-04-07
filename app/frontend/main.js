@@ -236,11 +236,40 @@ document.addEventListener("DOMContentLoaded", async () => {
         loadApplications();
     };
 
+    document.getElementById("clear-settings-btn").onclick = () => {
+        localStorage.removeItem('cfg_mcp_url');
+        localStorage.removeItem('cfg_mcp_key');
+        localStorage.removeItem('cfg_llm_provider');
+        localStorage.removeItem('cfg_llm_key');
+        document.getElementById("cfg_mcp_url").value = "";
+        document.getElementById("cfg_mcp_key").value = "";
+        document.getElementById("cfg_llm_provider").value = "openrouter";
+        document.getElementById("cfg_llm_key").value = "";
+        modal.classList.add("hidden");
+        updateMCPLabel();
+        loadApplications();
+    };
+
     await loadApplications();
 });
 
 async function loadApplications() {
     try {
+        const settings = getSettings();
+        if (!settings.mcp_key) {
+            try {
+                const cfgRes = await fetch(`${API_BASE}/config`);
+                if (cfgRes.ok) {
+                    const cfg = await cfgRes.json();
+                    if (!cfg.server_has_mcp_key) {
+                        document.getElementById("status-text").textContent = `Missing CAST MCP credentials (open Settings)`;
+                        const listContainer = document.getElementById("app-list");
+                        listContainer.innerHTML = '<p style="padding: 1rem; color: #a39eb8;">Set CAST MCP URL and X-API-KEY in Settings to load applications.</p>';
+                        return;
+                    }
+                }
+            } catch (e) {}
+        }
         document.getElementById("status-text").textContent = `Loading applications...`;
         const res = await fetch(`${API_BASE}/applications`, { headers: getAuthHeaders() });
         if (!res.ok) throw new Error("Failed to fetch applications");
