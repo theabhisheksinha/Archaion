@@ -304,11 +304,19 @@ h1, h2, h3, .neon-cyan, .neon-rose {
 .dna-kv-pair {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
     margin-bottom: 0.5rem;
     font-size: 0.95rem;
 }
-.dna-k { color: #a39eb8; font-weight: 500; }
-.dna-v { color: #ffffff; text-align: right; }
+.dna-k { color: #a39eb8; font-weight: 500; flex: 0 0 180px; }
+.dna-v { color: #ffffff; text-align: right; flex: 1 1 auto; overflow-wrap: anywhere; word-break: break-word; }
+
+@media (max-width: 768px) {
+    .dna-kv-pair { flex-direction: column; }
+    .dna-k { flex: 0 0 auto; }
+    .dna-v { text-align: left; }
+}
 
 .dna-tag-container {
     display: flex;

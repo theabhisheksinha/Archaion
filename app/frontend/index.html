@@ -56,6 +56,9 @@
                     <label>LLM API Key:</label>
                     <input type="password" id="cfg_llm_key" placeholder="Enter LLM API Key">
                     
+                    <label>SearchAPI.io Key (optional):</label>
+                    <input type="password" id="cfg_searchapi_key" placeholder="Enter SearchAPI.io API Key">
+                    
                     <button type="button" id="save-settings-btn" class="glow-btn mt-10">Save Configuration</button>
                     <button type="button" id="clear-settings-btn" class="danger-btn">Clear Saved Configuration</button>
                 </div>
@@ -77,6 +80,10 @@
                         <legend>Select an application</legend>
                         <p style="padding: 1rem; color: #a39eb8;">Fetching from CAST MCP...</p>
                     </fieldset>
+                    <details id="debug-panel" style="margin-top: 0.75rem; color: #a39eb8; display:none;">
+                        <summary>Debug</summary>
+                        <pre id="debug-log" style="white-space: pre-wrap; background:#0b0d22; border:1px solid var(--glass-border); padding:0.6rem; border-radius:6px; max-height: 220px; overflow:auto;"></pre>
+                    </details>
                 </div>
             </section>
 
@@ -87,7 +94,7 @@
                     <span class="badge" id="mf-badge"><span class="dot"></span> Mainframe tech: Not detected</span>
                 </div>
                 <div class="dna-box" id="dna-details">
-                    Select an application to view its DNA.
+                    Select an application to view its Technical details.
                 </div>
             </section>
 
@@ -105,18 +112,17 @@
                         <div>
                             <label>Modernization Goal:</label>
                             <select id="selGoal" style="width: 100%;">
-                                <option value="Mono2Micro">Mono2Micro</option>
-                                <option value="Cloud Migration">Cloud Migration</option>
-                                <option value="Refactor">Refactor</option>
-                                <option value="Rearchitect">Rearchitect</option>
-                                <option value="Re-platform (Mainframe)">Re-platform (Mainframe)</option>
-                                <option value="Rewrite (Non-Mainframe)">Rewrite (Non-Mainframe)</option>
-                                <option value="Rewrite (Mainframe)">Rewrite (Mainframe)</option>
+                                <option value="mono-to-micro">Mono-to-Micro Service Breakdown</option>
+                                <option value="refactoring">Re-Factoring</option>
+                                <option value="re-architect">Re-Architect</option>
+                                <option value="re-platform">Re-Platform</option>
+                                <option value="re-write">Re-Write</option>
+                                <option value="re-write-mainframe">Re-write [For the Mainframe Tech Stack]</option>
                             </select>
                         </div>
 
                         <div>
-                            <label>Risk Profile (selRiskProfile):</label>
+                            <label>Risk Profile:</label>
                             <select id="selRiskProfile" style="width: 100%;">
                                 <option value="ISO-5055 only">ISO-5055 only</option>
                                 <option value="Performance">Performance</option>
@@ -126,12 +132,8 @@
                         </div>
 
                         <div>
-                            <label>Vulnerabilities:</label>
-                            <select id="selVuln" style="width: 100%;">
-                                <option value="CVEs">CVEs</option>
-                                <option value="CWEs">CWEs</option>
-                                <option value="Both">Both</option>
-                            </select>
+                            <label>Modernization Type:</label>
+                            <select id="selModernizationType" style="width: 100%;"></select>
                         </div>
 
                         <div>
@@ -140,6 +142,42 @@
                                 <option value="No Migration">No Migration</option>
                                 <option value="Postgres">Postgres</option>
                                 <option value="MySQL">MySQL</option>
+                            </select>
+                        </div>
+
+                        <div style="grid-column: 1 / -1;">
+                            <label style="display: block; margin-bottom: 0.5rem;">Modernization Criterion Selection (Quality Insights):</label>
+                            <div id="criteriaSelection" style="display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: center;">
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="crit_structural_flaws" value="structural-flaws" checked> structural-flaws
+                                </label>
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="crit_iso_5055" value="iso-5055"> iso-5055
+                                </label>
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="crit_cve" value="cve"> cve
+                                </label>
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="crit_cloud" value="cloud-detection-patterns"> cloud-detection-patterns
+                                </label>
+                                <label style="text-transform: none; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="crit_green" value="green-detection-patterns"> green-detection-patterns
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style="grid-column: 1 / -1; margin-top: 0.5rem; padding: 0.8rem; background: rgba(0, 196, 204, 0.05); border: 1px solid rgba(0, 196, 204, 0.2); border-radius: 4px;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #00c4cc; margin: 0; text-transform: none; font-weight: 500;">
+                                <input type="checkbox" id="chkIncludeLocations" style="accent-color: #00c4cc;">
+                                Include Detailed Locations & Code Snippets (Violations)
+                            </label>
+                            <p style="font-size: 0.8rem; color: #a39eb8; margin: 0.25rem 0 0 1.5rem; text-transform: none;">Retrieves precise file names, line numbers, and context for quality insights.</p>
+                        </div>
+
+                        <div style="grid-column: 1 / -1;">
+                            <label>Advisory Suggestions (Advisors):</label>
+                            <select id="selAdvisor" style="width: 100%;">
+                                <option value="">None</option>
                             </select>
                         </div>
 
@@ -178,6 +216,14 @@
                             </div>
                         </div>
 
+                        <div style="grid-column: 1 / -1; margin-top: 1rem; padding: 0.8rem; background: rgba(228, 77, 94, 0.05); border: 1px solid rgba(228, 77, 94, 0.2); border-radius: 4px;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; color: #e44d5e; margin: 0; text-transform: none; font-weight: 500;">
+                                <input type="checkbox" id="chkUseLLM" style="accent-color: #e44d5e;">
+                                Enable AI Generative Agents (CrewAI)
+                            </label>
+                            <p style="font-size: 0.8rem; color: #a39eb8; margin: 0.25rem 0 0 1.5rem; text-transform: none;">If disabled, generates a deterministic report from CAST Imaging MCP tools directly (faster, no token cost).</p>
+                        </div>
+
                         <div style="grid-column: 1 / -1; margin-top: 1.5rem;">
                             <button type="submit" class="glow-btn" style="width: 100%;">Initialize Agents</button>
                         </div>
@@ -208,6 +254,6 @@
         </footer>
     </main>
 </div>
-<script src="main.js"></script>
+    <script src="main.js?v=2.6"></script>
 </body>
 </html>

@@ -1,61 +1,80 @@
-portfolio_task:
+db_analysis_task:
   description: >
-    Discover applications from the CAST Imaging MCP server using the 'applications' tool.
+    Using CAST Imaging tools, extract deterministic database facts for '{selected_app}'.
+    Use 'application_database_explorer' to identify the top shared tables and their usage hotspots.
+    For each table, capture the CAST Object ID (or stable identifier), schema/table name, and evidence fields returned by the tool.
+    Output must be JSON (not Markdown) with keys: app, tables_top, crud_hotspots, evidence.
   expected_output: >
-    A list of applications to populate the UI.
-  agent: portfolio_specialist
+    JSON object with top shared tables and CRUD hotspot evidence derived only from MCP tool output.
+  agent: database_architect
 
-profile_task:
+logic_mapping_task:
   description: >
-    Analyze the Application Technical DNA Profile:
-    {dna_profile}
-    Extract LOC, Elements, and Interactions. Check for Mainframe technology.
+    Using CAST Imaging tools, extract deterministic transaction and flow facts for '{selected_app}'.
+    Use 'transactions' to list transactions, then use 'transaction_details' with focus=graph/nodes/links/type_graph for the top candidates.
+    Do not rely on tool-side filtering unless necessary; prefer fetching and filtering locally for deterministic output.
+    For each transaction/flow, capture CAST Object IDs and the evidence fields returned by the tool (nodes, links, complexity, entrypoints).
+    Output must be JSON (not Markdown) with keys: app, transactions_top, clusters, candidate_service_boundaries, evidence.
   expected_output: >
-    A system technical profile summary.
-  agent: system_profile_analyst
+    JSON object mapping transactions to candidate service boundaries backed by CAST Object IDs and tool evidence.
+  agent: legacy_transformation_specialist
 
-orchestration_task:
+architecture_analysis_task:
   description: >
-    Coordinate the modernization mission for {app_name}.
-    Objective: {objective}
-    Goal: {goal}
-    Strategy: {strategy}
-    Target Language for Mainframe (if applicable): {target_lang}
-    Ensure the final report includes all 10 mandatory sections:
-    1. As-IS Architecture (Layering/Component structure)
-    2. Present Database Architecture
-    3. Database Access Patterns (CRUD hotspots)
-    4. API Inventory & Anomalies
-    5. Proposed Recommended Architecture (Microservices/Containerization)
-    6. Rationale (Why this recommendation?)
-    7. Mono2micro Decomposition (Code & DB refactoring steps)
-    8. Cloud Service Map (Target Cloud rationale)
-    9. Strategic Consulting Conclusion (Risk/ROI)
-    10. Disclaimer: "This is an AI generated report using deterministic details for {app_name} from CAST Imaging through its MCP Server."
+    Using CAST Imaging tools, extract deterministic architectural facts for '{selected_app}'.
+    Use 'architectural_graph' and 'applications_transactions' or 'applications_data_graphs' to map the layers and topology.
+    Capture the top layers, components, and how they interact. 
+    Output must be JSON (not Markdown) with keys: app, top_layers, interaction_patterns, architectural_coupling, evidence.
+  expected_output: >
+    JSON object detailing the current-state architecture, top layers, and coupling points grounded in CAST tools.
+  agent: architecture_analyst
+
+risk_compliance_audit_task:
+  description: >
+    Using CAST Imaging tools, extract deterministic risk and compliance facts for '{selected_app}'.
+    Use 'packages' to find third-party risks.
+    Use 'quality_insights' and 'quality_insight_violations' (with include_locations={include_locations}) to fetch ISO 5055, CVE, and structural flaw violations.
+    Capture the file paths, line numbers, and object names where available.
+    Output must be JSON (not Markdown) with keys: app, packages_risk, iso5055_summary, top_violations_with_locations, evidence.
+  expected_output: >
+    JSON object with deep code-level compliance and risk findings, including file locations if requested.
+  agent: risk_compliance_expert
+
+advisory_suggestions_task:
+  description: >
+    Using CAST Imaging tools, generate actionable modernization advice for '{selected_app}'.
+    Use 'advisors' to list available modernization advisors, then 'advisors' (focus=rules) for relevant ones, and finally 'advisor_occurrences' to find exactly where the rules are broken in the code.
+    Output must be JSON (not Markdown) with keys: app, applied_advisors, broken_rules, remediation_steps, evidence.
+  expected_output: >
+    JSON object mapping specific advisor rules to code occurrences with actionable remediation steps.
+  agent: modernization_advisor
+
+synthesis_report_task:
+  description: >
+    Generate a deterministic modernization report for '{selected_app}' using only the provided deterministic evidence and task context.
+    The modernization goal is: {modernization_goal}.
+    Here is the baseline deterministic evidence you MUST use:
+    {deterministic_evidence}
     
-    IMPORTANT: The final report must use specific Object IDs from the MCP tools as evidence for its refactoring recommendations.
+    The report must be Markdown and follow this exact structure with headings:
+    1. Executive Summary
+    2. Application Snapshot (LOC, elements, interactions, technologies)
+    3. Current-State Architecture (from architecture_analysis_task)
+    4. Data Architecture & Hotspots (from db_analysis_task)
+    5. Transaction Flows & Coupling (from logic_mapping_task)
+    6. Risk & ISO 5055 Findings (from risk_compliance_audit_task)
+    7. Advisory Suggestions (from advisory_suggestions_task)
+    8. Target Architecture (service boundaries tied to evidence)
+    9. Migration Plan (phased, each phase references evidence IDs)
+    10. Evidence Appendix (tables listing CAST Object IDs used in recommendations)
+    Rules:
+    - Every recommendation must cite at least one CAST Object ID or violation ID captured in context.
+    - Do not invent numbers, tools, or IDs; if evidence is missing, state “Not available from MCP output”.
+    - For Risk & ISO 5055 Findings, you MUST provide a neatly formatted Markdown table of the top 10 identified risks/violations with columns: | Type | Name | Severity | Count | Object ID | Violation ID |. If include_locations was requested, also include file paths and line numbers.
+    - For Data Architecture, you MUST provide a Markdown table with columns: | Table | Schema | Object ID | CRUD Hotspots |.
+    - For Transaction Flows, you MUST provide a Markdown table with columns: | Transaction | Object ID | Complexity | Entrypoints |.
+    - Avoid generic prose; prefer bullet points and tables with counts and IDs.
   expected_output: >
-    A structured report outlining the modernization strategy, integrating inputs from all specialists, and strictly containing the 10 mandatory sections with Object ID evidence.
-  agent: transformation_manager
-
-data_architecture_task:
-  description: >
-    Design the DB Migration plan based on {db_migration}. Map CRUD interaction hotspots.
-  expected_output: >
-    Database architecture and access patterns sections.
-  agent: data_architect
-
-logic_transformation_task:
-  description: >
-    Trace functional clusters and Mainframe logic paths based on {rewrite_mainframe} instructions.
-  expected_output: >
-    Mono2micro decomposition and API inventory sections.
-  agent: logic_specialist
-
-risk_audit_task:
-  description: >
-    Audit the proposed architecture considering {risk_profile} and {vulnerabilities}.
-    Consider flaws: {iso_5055_flaws}
-  expected_output: >
-    Strategic consulting conclusion (Risk/ROI) and compliance report.
-  agent: risk_auditor
+    A consulting-grade Markdown report for {selected_app} with every recommendation backed by specific CAST Object IDs from the evidence context.
+  agent: modernization_manager
+  context: [architecture_analysis_task, db_analysis_task, logic_mapping_task, risk_compliance_audit_task, advisory_suggestions_task]

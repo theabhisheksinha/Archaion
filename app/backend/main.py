@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from logging.handlers import RotatingFileHandler
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -141,10 +141,14 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     app_id: str
     objective: str
-    goal: str
+    goal: Optional[str] = None
+    modernization_goal: Optional[str] = None
+    modernization_type: Optional[str] = None
+    criteria: Optional[List[str]] = None
+    advisor_id: Optional[str] = None
     strategy: str
     risk_profile: str
-    vulnerabilities: str
+    vulnerabilities: Optional[str] = None
     db_migration: str
     rewrite_mainframe: Optional[str] = ""
     target_lang: Optional[str] = ""
@@ -153,10 +157,13 @@ class AnalyzeRequest(BaseModel):
     llm_provider: Optional[str] = None
     llm_key: Optional[str] = None
     llm_model: Optional[str] = None
+    searchapi_key: Optional[str] = None
+    use_llm: Optional[bool] = False
+    include_locations: Optional[bool] = False
 
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from app.tools.document_generator import generate_docx_from_markdown
+from app.tools.docx_postprocess import generate as generate_docx_from_markdown
 
 # In-memory store for demo
 flow_states = {}
@@ -165,6 +172,21 @@ import json
 
 def parse_mcp_response(res):
     logger.debug(f"parse_mcp_response called with type {type(res)}: {repr(res)[:200]}")
+    def _try_load(s: str):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as e:
+            try:
+                return json.loads(s, strict=False)
+            except Exception:
+                # Escape invalid backslash sequences (e.g., \_, \x not valid JSON)
+                s2 = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
+                try:
+                    return json.loads(s2, strict=False)
+                except Exception:
+                    # Strip control chars as a last resort
+                    s3 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s2)
+                    return json.loads(s3, strict=False)
     if isinstance(res, dict):
         content = res.get("content", [])
         if isinstance(content, list) and len(content) > 0:
@@ -173,14 +195,7 @@ def parse_mcp_response(res):
                 text_content = first.get("text", "")
                 try:
                     clean_str = text_content.replace('\\n', '\n')
-                    try:
-                        return json.loads(clean_str)
-                    except json.JSONDecodeError:
-                        try:
-                            return json.loads(clean_str, strict=False)
-                        except Exception:
-                            clean_str2 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", clean_str)
-                            return json.loads(clean_str2, strict=False)
+                    return _try_load(clean_str)
                 except Exception as e:
                     logger.error(f"Error parsing MCP JSON content: {e}")
                     pass
@@ -189,14 +204,7 @@ def parse_mcp_response(res):
         if "content" in res and isinstance(res["content"], str):
             try:
                 clean_str = res["content"].replace('\\n', '\n')
-                try:
-                    return json.loads(clean_str)
-                except json.JSONDecodeError:
-                    try:
-                        return json.loads(clean_str, strict=False)
-                    except Exception:
-                        clean_str2 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", clean_str)
-                        return json.loads(clean_str2, strict=False)
+                return _try_load(clean_str)
             except:
                 pass
         if "items" in res:
@@ -204,6 +212,136 @@ def parse_mcp_response(res):
     if isinstance(res, list):
         return res
     return res
+
+def _try_parse_json_str(s: str):
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    if not s:
+        return None
+    candidates = [
+        s,
+        s.replace("\\n", "\n"),
+        s.replace("\\r", "\r"),
+        s.replace("\\n", "\n").replace("\\r", "\r"),
+        re.sub("\\\\\r?\n", "\n", s),
+        re.sub("\\\\\r?\n", "\n", s.replace("\\n", "\n")),
+    ]
+    for cand in candidates:
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        except Exception:
+            continue
+    try:
+        return json.loads(s, strict=False)
+    except json.JSONDecodeError:
+        try:
+            return json.loads(s.replace("\\n", "\n").replace("\\r", "\r"), strict=False)
+        except Exception:
+            try:
+                s2 = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
+                return json.loads(s2, strict=False)
+            except Exception:
+                try:
+                    s3 = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)
+                    return json.loads(s3, strict=False)
+                except Exception:
+                    return None
+
+def _extract_first_dict_from_stats_payload(obj):
+    def _from_any(x):
+        if isinstance(x, list) and x:
+            return x[0] if isinstance(x[0], dict) else None
+        if isinstance(x, dict):
+            return x
+        return None
+
+    if isinstance(obj, list):
+        return obj[0] if obj and isinstance(obj[0], dict) else None
+
+    if isinstance(obj, dict):
+        sc = obj.get("structuredContent")
+        if isinstance(sc, dict) and isinstance(sc.get("content"), str):
+            parsed = _try_parse_json_str(sc["content"])
+            first = _from_any(parsed)
+            if first is not None:
+                return first
+
+        content = obj.get("content")
+        if isinstance(content, list) and content:
+            first = content[0]
+            if isinstance(first, dict) and first.get("type") == "text" and isinstance(first.get("text"), str):
+                parsed = _try_parse_json_str(first["text"])
+                if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+                    parsed2 = _try_parse_json_str(parsed["content"])
+                    first2 = _from_any(parsed2)
+                    if first2 is not None:
+                        return first2
+                first = _from_any(parsed)
+                if first is not None:
+                    return first
+
+        if isinstance(content, str):
+            parsed = _try_parse_json_str(content)
+            if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+                parsed2 = _try_parse_json_str(parsed["content"])
+                first2 = _from_any(parsed2)
+                if first2 is not None:
+                    return first2
+            first = _from_any(parsed)
+            if first is not None:
+                return first
+
+    return None
+
+def _infer_mainframe(obj):
+    if not isinstance(obj, dict):
+        return False
+    if isinstance(obj.get("mainframe"), bool):
+        return bool(obj.get("mainframe"))
+    platforms = obj.get("platforms")
+    if isinstance(platforms, dict) and isinstance(platforms.get("mainframe"), bool):
+        return bool(platforms.get("mainframe"))
+    keywords = (
+        "mainframe",
+        "cobol",
+        "jcl",
+        "cics",
+        "ims",
+        "db2",
+        "vsam",
+        "z/os",
+        "zos",
+        "pl/i",
+        "pli",
+        "pl1",
+        "natural",
+        "adabas",
+        "rpg",
+        "as/400",
+        "as400",
+        "ibm i",
+        "ibm z",
+    )
+    for k in ("technologies", "element_types"):
+        v = obj.get(k)
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, str):
+                    s = item.strip().lower()
+                    if any(kw in s for kw in keywords):
+                        return True
+        if isinstance(v, dict):
+            for vv in v.values():
+                if isinstance(vv, list):
+                    for item in vv:
+                        if isinstance(item, str):
+                            s = item.strip().lower()
+                            if any(kw in s for kw in keywords):
+                                return True
+    return False
 
 from app.backend.crew import ModernizationCrew
 from crewai import Crew, Task
@@ -245,14 +383,87 @@ async def get_applications(request: Request):
         # since LLM parsing of arrays might sometimes be unpredictable
         try:
             res = await mcp.invoke_tool("applications", {})
+            def _extract_apps(obj):
+                def _try_parse_array_string(s: str):
+                    candidates = [
+                        s,
+                        s.replace("\\n", "\n"),
+                        s.replace("\\r", "\r"),
+                        s.replace("\\n", "\n").replace("\\r", "\r"),
+                        s.replace('\\"', '"'),
+                        s.replace('\\"', '"').replace("\\n", "\n").replace("\\r", "\r"),
+                        s.replace("\\\\n", "\\n"),
+                        s.replace("\\\\n", "\\n").replace("\\n", "\n").replace("\\r", "\r"),
+                        s.replace("\\\\n", "\\n").replace('\\"', '"').replace("\\n", "\n").replace("\\r", "\r"),
+                    ]
+                    for c in candidates:
+                        try:
+                            arr = json.loads(c)
+                            if isinstance(arr, list):
+                                return arr
+                        except Exception:
+                            pass
+                    try:
+                        import re as _re
+                        m = _re.search(r"\[[\s\S]*\]", s)
+                        if m:
+                            for c in (m.group(0), m.group(0).replace("\\n", "\n")):
+                                try:
+                                    arr = json.loads(c)
+                                    if isinstance(arr, list):
+                                        return arr
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    return None
+                # Already an array
+                if isinstance(obj, list):
+                    return obj
+                # Inner JSON object with stringified array under 'content'
+                if isinstance(obj, dict):
+                    content = obj.get("content")
+                    if isinstance(content, str):
+                        arr = _try_parse_array_string(content)
+                        if isinstance(arr, list):
+                            return arr
+                    # structuredContent.content path
+                    sc = obj.get("structuredContent", {})
+                    if isinstance(sc, dict) and isinstance(sc.get("content"), str):
+                        arr = _try_parse_array_string(sc["content"])
+                        if isinstance(arr, list):
+                            return arr
+                return None
+            # Prefer MCP structuredContent payload (most reliable)
+            try:
+                sc_content = res.get("structuredContent", {}).get("content") if isinstance(res, dict) else None
+                if isinstance(sc_content, str):
+                    arr = _extract_apps({"structuredContent": {"content": sc_content}})
+                    if isinstance(arr, list):
+                        return arr
+            except Exception:
+                pass
+
             parsed = parse_mcp_response(res)
-            if parsed:
-                return parsed
+            apps_arr = _extract_apps(parsed)
+            if apps_arr is not None:
+                return apps_arr
         except:
             pass
             
         # Return the LLM's raw output if fallback fails
-        return [{"id": "llm-output", "name": result.raw}]
+        # Try to recover a JSON array from the LLM's raw output
+        try:
+            if isinstance(result.raw, str):
+                import re as _re
+                m = _re.search(r"\[[\s\S]*\]", result.raw)
+                if m:
+                    arr = json.loads(m.group(0))
+                    if isinstance(arr, list):
+                        return arr
+        except Exception:
+            pass
+        return []
         
     except Exception as e:
         logger.error(f"Error fetching apps: {e}")
@@ -270,13 +481,43 @@ async def get_config():
         "server_has_mcp_key": bool(CAST_X_API_KEY),
     }
 
+@app.get("/advisors")
+async def get_advisors(request: Request, app_id: str = Query(...)):
+    mcp_url = _normalize_mcp_url(request.headers.get("x-mcp-url") or CAST_MCP_URL)
+    mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
+    if not mcp_url or not mcp_key:
+        raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
+
+    mcp = MCPServerHTTP(mcp_url, mcp_key)
+    try:
+        await mcp.open()
+        res = await mcp.invoke_tool("advisors", {"application": app_id, "focus": "list", "page": 1})
+        parsed = parse_mcp_response(res)
+        if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+            inner = _try_parse_json_str(parsed.get("content"))
+            if inner is not None:
+                parsed = inner
+        items = None
+        if isinstance(parsed, list):
+            items = parsed
+        elif isinstance(parsed, dict):
+            for k in ("items", "advisors", "results", "data"):
+                if isinstance(parsed.get(k), list):
+                    items = parsed.get(k)
+                    break
+            if items is None and isinstance(parsed.get("content"), list):
+                items = parsed.get("content")
+        return {"items": items or []}
+    finally:
+        try:
+            await mcp.aclose()
+        except Exception:
+            pass
+
 @app.get("/dna")
 async def get_dna(request: Request, app_id: str = Query(...)):
     mcp_url = _normalize_mcp_url(request.headers.get("x-mcp-url") or CAST_MCP_URL)
     mcp_key = request.headers.get("x-api-key") or CAST_X_API_KEY
-    llm_provider = request.headers.get("x-llm-provider") or "openrouter"
-    llm_key = request.headers.get("x-llm-key") or os.environ.get("OPENROUTER_API_KEY", "")
-    llm_model = request.headers.get("x-llm-model") or os.environ.get("OPENROUTER_MODEL") or "openai/gpt-4o"
     
     if not mcp_url or not mcp_key:
         raise HTTPException(status_code=400, detail="Missing CAST MCP credentials.")
@@ -284,39 +525,24 @@ async def get_dna(request: Request, app_id: str = Query(...)):
     mcp = MCPServerHTTP(mcp_url, mcp_key)
     try:
         await mcp.open()
-        
-        loop = asyncio.get_running_loop()
-        mod_crew = ModernizationCrew(llm_provider=llm_provider, llm_key=llm_key, llm_model=llm_model, mcp_client=mcp, loop=loop)
-        
-        profile_agent = mod_crew.system_profile_analyst()
-        profile_task = Task(
-            description=f"Analyze the Application Technical DNA Profile for {app_id} using 'stats' and 'architectural_graph'. Return a JSON containing LOC, elements, interactions, and a boolean 'mainframe_detected'.",
-            expected_output="A JSON object representing the system technical profile.",
-            agent=profile_agent
-        )
-        
-        mini_crew = Crew(
-            agents=[profile_agent],
-            tasks=[profile_task],
-            verbose=True
-        )
-        
-        # We also call MCP directly as a reliable fallback for UI rendering 
+
         try:
             res = await mcp.invoke_tool("stats", {"application": app_id})
-            parsed = parse_mcp_response(res)
-            # Add simple heuristic if missing
-            dna_str = json.dumps(parsed).lower()
-            if "mainframe" not in parsed:
-                parsed["mainframe"] = "cobol" in dna_str or "mainframe" in dna_str or "jcl" in dna_str
-                
-            # Fire and forget the LLM profiling so we aren't blocking the UI too long
-            # asyncio.create_task(asyncio.to_thread(mini_crew.kickoff))
-            
-            # Or run it synchronously to fully fulfill prompt:
-            await asyncio.to_thread(mini_crew.kickoff)
-            
-            return parsed
+            stats_obj = _extract_first_dict_from_stats_payload(res)
+            if stats_obj is None:
+                parsed = parse_mcp_response(res)
+                stats_obj = _extract_first_dict_from_stats_payload(parsed)
+                if stats_obj is None and isinstance(parsed, dict):
+                    stats_obj = parsed
+            if stats_obj is None:
+                stats_obj = {"name": app_id}
+            if not isinstance(stats_obj.get("name"), str) or not stats_obj.get("name"):
+                stats_obj["name"] = app_id
+            if not isinstance(stats_obj.get("application"), str) or not stats_obj.get("application"):
+                stats_obj["application"] = app_id
+            if not isinstance(stats_obj.get("mainframe"), bool):
+                stats_obj["mainframe"] = _infer_mainframe(stats_obj)
+            return stats_obj
         except Exception as fallback_e:
             logger.warning(f"Fallback DNA fetch failed: {fallback_e}")
             pass
@@ -334,6 +560,9 @@ async def get_dna(request: Request, app_id: str = Query(...)):
 async def kickoff_mission(req: AnalyzeRequest):
     # Instead of blocking, we initiate the flow and return an ID
     job_id = req.app_id
+    existing = flow_states.get(job_id)
+    if isinstance(existing, dict) and existing.get("status") == "started":
+        raise HTTPException(status_code=409, detail="A mission is already running for this application. Please wait for it to complete.")
     flow_states[job_id] = {
         "req": req.dict(),
         "status": "started",
@@ -413,6 +642,15 @@ async def analyze_stream(request: Request, job_id: str):
             yield {"event": "complete", "data": json.dumps(report)}
         except Exception as e:
             logger.exception("Analyze stream failed")
+            state["status"] = "error"
+            state["report"] = {
+                "executive_summary": "",
+                "architecture_insights": "",
+                "modernization_roadmap": "",
+                "iso_5055_flaws": "",
+                "disclaimer": DISCLAIMER_TEXT,
+                "error": str(e),
+            }
             if isinstance(state.get("req"), dict):
                 state["req"].pop("mcp_key", None)
                 state["req"].pop("llm_key", None)

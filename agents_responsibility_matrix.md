@@ -24,6 +24,14 @@ Source of truth: [crew.py](file:///c:/Personal-docs/Archaion/Archaion/app/backen
   - `stats` (expects `application`)
   - `architectural_graph` (expects `application`)
 
+### Architecture Analyst (`architecture_analyst`)
+- Role: Current-State Architecture Topology Analyst
+- Goal: Map layers, transactions, and coupling with deterministic topology facts.
+- MCP tools:
+  - `architectural_graph` (expects `application`)
+  - `applications_transactions` (expects `application`)
+  - `applications_data_graphs` (expects `application`)
+
 ### Transformation Manager (`transformation_manager`)
 - Role: Orchestrator Agent
 - Goal: Synthesize user inputs and delegate to specialists; ensure the final report is actionable.
@@ -50,28 +58,34 @@ Source of truth: [crew.py](file:///c:/Personal-docs/Archaion/Archaion/app/backen
   - `transaction_details` (expects `application` plus a transaction id/key depending on server)
   - `transactions_using_object` (expects `application` plus object id/key depending on server)
 
-### Risk Auditor (`risk_auditor`)
-- Role: Quality Specialist
-- Goal: Audit the proposed architecture for ISO 5055 compliance (Security/Reliability).
-- Backstory: Software Integrity Auditor. You ensure the new microservices are born clean and free of legacy vulnerabilities.
+### Risk & Compliance Expert (`risk_compliance_expert`)
+- Role: Quality/Compliance Specialist
+- Goal: Audit structural flaws, CVEs, and ISO‑5055 violations with detailed locations when requested.
 - MCP tools:
-  - `application_iso_5055_explorer` (expects `application`)
-  - `quality_insights` (expects `application`)
-  - `quality_insight_violations` (expects `application`, plus an insight type/key depending on server)
+  - `quality_insights` (expects `application`, `nature`)
+  - `quality_insight_violations` (expects `application`, `nature`; `id` required when `include_locations=true`)
+  - `packages` (expects `application`)
+
+### Modernization Advisor (`modernization_advisor`)
+- Role: Advisory Specialist
+- Goal: Map advisor rules to concrete code occurrences and propose remediation.
+- MCP tools:
+  - `advisors` (expects `application`, optional `focus` = `list|rules|violations`, `advisor_id`)
+  - `advisor_occurrences` (expects `application`, `id`)
 
 ## 10 Mandatory Report Sections (Ownership)
 
 | # | Mandatory Section | Primary Owner | Supporting Agents | Evidence / MCP Tools (typical) |
 |---:|---|---|---|---|
-| 1 | As‑IS Architecture (Layering/Component structure) | System Profile Analyst | Transformation Manager | `architectural_graph`, `architectural_graph_focus`, `stats` |
+| 1 | As‑IS Architecture (Layering/Component structure) | Architecture Analyst | System Profile Analyst | `architectural_graph`, `applications_transactions`, `applications_data_graphs`, `stats` |
 | 2 | Present Database Architecture | Data Architect | System Profile Analyst | `application_database_explorer`, `data_graphs` |
 | 3 | Database Access Patterns (CRUD hotspots) | Data Architect | Logic Specialist | `data_graphs_involving_object`, `transactions` |
 | 4 | API Inventory & Anomalies | Logic Specialist | System Profile Analyst | `transactions`, `transaction_details`, `transactions_using_object` |
-| 5 | Proposed Recommended Architecture (Microservices/Containerization) | Transformation Manager | Data Architect, Logic Specialist, Risk Auditor | `advisors` + evidence from 1–4 |
-| 6 | Rationale (Why this recommendation?) | Transformation Manager | Risk Auditor | `advisors`, `quality_insights`, `application_iso_5055_explorer` |
+| 5 | Proposed Recommended Architecture (Microservices/Containerization) | Transformation Manager | Data Architect, Logic Specialist, Risk & Compliance Expert | `advisors` + evidence from 1–4 |
+| 6 | Rationale (Why this recommendation?) | Transformation Manager | Risk & Compliance Expert | `advisors`, `quality_insights` |
 | 7 | Mono2micro Decomposition (Code & DB refactoring steps) | Logic Specialist | Data Architect, Transformation Manager | `transactions*`, `data_graphs*` |
 | 8 | Cloud Service Map (Target Cloud rationale) | Transformation Manager | Risk Auditor | `advisors` + compliance constraints |
-| 9 | Strategic Consulting Conclusion (Risk/ROI) | Risk Auditor | Transformation Manager | `quality_insights`, `quality_insight_violations`, ISO 5055 evidence |
+| 9 | Strategic Consulting Conclusion (Risk/ROI) | Risk & Compliance Expert | Transformation Manager | `quality_insights`, `quality_insight_violations` (+ locations when requested) |
 | 10 | Disclaimer | Transformation Manager | (none) | Static text appended in backend/UI/DOCX pipeline |
 
 ## Tool Input Keys (Practical Guide)
@@ -84,6 +98,9 @@ Archaion injects `application=<selected_app>` automatically for most MCP tools d
 When adding or debugging tools, verify the MCP server’s required payload keys:
 - Some CAST MCP servers may require `app_name` instead of `application`.
 - Some tools require additional keys beyond `application` (for example, transaction id, object id, insight type).
+- `quality_insight_violations` contract:
+  - Args: `application` (required), `nature` (required: `cloud-detection-patterns|green-detection-patterns|cve|structural-flaws|iso-5055`), `id` (required when `include_locations=true`), `include_locations` (bool), `page` (int).
+  - With `include_locations=true`, returns file names, line numbers, and (optionally) code snippets if enabled on the server.
 
 ## Hierarchy & Execution Shape
 

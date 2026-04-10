@@ -1,6 +1,45 @@
-mcp_tool:
-  description: "A tool that interacts with the CAST Imaging MCP server to retrieve technical metadata and flaws."
-  parameters:
-    - name: "app_id"
-      type: "string"
-      description: "The ID of the application to query"
+# tools.yaml - Archaion Tool Mapping
+
+portfolio_tools:
+  - applications
+  - applications_transactions
+  - applications_data_graphs
+  - applications_dependencies
+  - applications_quality_insights
+  - inter_app_detailed_dependencies
+  - inter_applications_dependencies
+
+profiling_tools:
+  - stats
+  - architectural_graph
+  - architectural_graph_focus
+  - object_profiles
+
+data_tools:
+  - application_database_explorer
+  - data_graphs
+  - data_graph_details
+
+logic_tools:
+  - transactions
+  - transaction_details
+  - advisors
+  - advisor_occurrences
+
+risk_tools:
+  - application_iso_5055_explorer
+  - quality_insights
+  - quality_insight_violations
+
+annotation_tools:
+  - add_view_document
+
+object_tools:
+  - objects
+  - object_details
+  - add_object_document
+  - data_graphs_involving_object
+  - transactions_using_object
+  - source_files
+  - source_file_details
+  - manage_object_tags
