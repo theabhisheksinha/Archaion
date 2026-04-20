@@ -2,9 +2,15 @@ import os
 import json
 import asyncio
 import logging
+import uuid
 import litellm
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
+
+try:
+    from app.backend.redis_manager import redis_client
+except ImportError:
+    redis_client = None
 
 litellm.set_verbose = True
 logger = logging.getLogger("archaion.flow")
@@ -26,6 +32,7 @@ class ModernizationState(BaseModel):
     mission_report: Optional[str] = None
     validation_report: Optional[str] = None
     status_updates: List[str] = []
+    execution_id: Optional[str] = None
 
 class ModernizationFlow:
     """
@@ -122,6 +129,25 @@ class ModernizationFlow:
         if not self.state.dna_profile or not self.state.mission_params:
             return
         
+        self.state.execution_id = str(uuid.uuid4())
+        self.push_update(f"Initializing Execution Environment... (ID: {self.state.execution_id})")
+        
+        # Step 1: Initialize MCP Registry in Redis
+        if self.mcp_client and redis_client:
+            self.push_update("Fetching and storing MCP Dynamic Registry in Redis...")
+            try:
+                await redis_client.connect()
+                # Mocking a `tools/list` if mcp_client supports listing.
+                # Assuming `list_tools()` is an async method on your MCP client.
+                registry_data = {}
+                if hasattr(self.mcp_client, "list_tools"):
+                    tools_list = await self.mcp_client.list_tools()
+                    registry_data["tools"] = tools_list
+                # You can add resources/prompts list here if the client supports it
+                await redis_client.set_execution_registry(self.state.execution_id, registry_data)
+            except Exception as e:
+                self.push_update(f"Failed to cache MCP registry: {e}")
+
         self.push_update("Initializing CrewAI Multi-Agent Execution...")
         
         # 1. Retrieve LLM Credentials from the frontend parameters
@@ -257,6 +283,7 @@ class ModernizationFlow:
         if not vuln_val:
             vuln_val = "CVEs" if "cve" in criteria else "None"
         inputs = {
+            "execution_id": self.state.execution_id,
             "app_name": self.state.selected_app_id,
             "selected_app": selected_app,
             "tech_stack": tech_stack,
@@ -656,6 +683,7 @@ class ModernizationFlow:
                             llm_model=chosen_model,
                             enable_per_agent_models=(llm_provider == "openrouter"),
                             app_name=self.state.selected_app_id,
+                            execution_id=self.state.execution_id,
                             search_api_key=search_api_key,
                             mcp_client=self.mcp_client,
                             loop=loop,
@@ -680,6 +708,7 @@ class ModernizationFlow:
                                 llm_model=chosen_model,
                                 enable_per_agent_models=False,
                                 app_name=self.state.selected_app_id,
+                                execution_id=self.state.execution_id,
                                 search_api_key=search_api_key,
                                 mcp_client=self.mcp_client,
                                 loop=loop,
@@ -763,323 +792,28 @@ class ModernizationFlow:
                     raw_val = getattr(result, "raw", None)
                     raws = [str(raw_val) if raw_val is not None else str(result)]
 
-                db_data = _parse_jsonish(raws[0]) if len(raws) > 0 else None
-                logic_data = _parse_jsonish(raws[1]) if len(raws) > 1 else None
-                risk_data = _parse_jsonish(raws[2]) if len(raws) > 2 else None
-                manager_md = raws[3].strip() if len(raws) > 3 else ""
+                manager_md = raws[-1].strip() if len(raws) > 0 else ""
 
-                app = selected_app or self.state.selected_app_id or ""
-                nb_loc = stats_obj.get("nb_LOC")
-                nb_elements = stats_obj.get("nb_elements")
-                nb_interactions = stats_obj.get("nb_interactions")
-                technologies = stats_obj.get("technologies")
-                tech_list: List[str] = []
-                if isinstance(technologies, list):
-                    tech_list = [t for t in technologies if isinstance(t, str)]
-                elif isinstance(technologies, dict):
-                    for v in technologies.values():
-                        if isinstance(v, list):
-                            tech_list.extend([t for t in v if isinstance(t, str)])
+                usage_info = ""
+                try:
+                    usage = None
+                    if hasattr(crew_instance, "usage_metrics"):
+                        usage = crew_instance.usage_metrics
+                    elif hasattr(result, "token_usage"):
+                        usage = result.token_usage
+                    
+                    if usage and hasattr(usage, "total_tokens"):
+                        usage_info = f"\n\n---\n**Execution Metrics:**\n- **Total Tokens Used**: {usage.total_tokens:,}\n- **Prompt Tokens**: {usage.prompt_tokens:,}\n- **Completion Tokens**: {usage.completion_tokens:,}\n- **Successful Requests**: {usage.successful_requests:,}"
+                except Exception as e:
+                    logger.warning(f"Could not extract token usage: {e}")
 
-                db_tables = []
-                if isinstance(db_data, dict):
-                    tt = db_data.get("tables_top")
-                    if isinstance(tt, list):
-                        for item in tt[:10]:
-                            if isinstance(item, dict):
-                                db_tables.append(item)
-                if not db_tables and self.mcp_client and app:
-                    try:
-                        db_res = await self.mcp_client.invoke_tool("application_database_explorer", {"application": app})
-                        db_obj = None
-                        if isinstance(db_res, dict):
-                            sc = db_res.get("structuredContent")
-                            if isinstance(sc, dict) and isinstance(sc.get("content"), str):
-                                db_obj = _try_json_load(sc["content"])
-                            if db_obj is None:
-                                content = db_res.get("content")
-                                if isinstance(content, list) and content:
-                                    first = content[0]
-                                    if isinstance(first, dict) and first.get("type") == "text" and isinstance(first.get("text"), str):
-                                        db_obj = _try_json_load(first["text"])
-                                elif isinstance(content, str):
-                                    db_obj = _try_json_load(content)
-                        else:
-                            db_obj = db_res
-                        items = db_obj.get("items") if isinstance(db_obj, dict) else None
-                        if items is None and isinstance(db_obj, dict):
-                            for k in ("tables", "objects", "data", "results"):
-                                if isinstance(db_obj.get(k), list):
-                                    items = db_obj.get(k)
-                                    break
-                        if isinstance(items, list):
-                            for it in items[:25]:
-                                if not isinstance(it, dict):
-                                    continue
-                                row = dict(it)
-                                if "object_id" not in row:
-                                    for k in ("object_id", "objectId", "id", "table_id", "tableId"):
-                                        if row.get(k) is not None:
-                                            row["object_id"] = row.get(k)
-                                            break
-                                if "table" not in row:
-                                    for k in ("table", "table_name", "name", "displayName"):
-                                        if isinstance(row.get(k), str) and row.get(k).strip():
-                                            row["table"] = row.get(k)
-                                            break
-                                if "schema" not in row:
-                                    for k in ("schema", "schema_name", "owner"):
-                                        if isinstance(row.get(k), str) and row.get(k).strip():
-                                            row["schema"] = row.get(k)
-                                            break
-                                db_tables.append(row)
-                                if len(db_tables) >= 10:
-                                    break
-                    except Exception:
-                        pass
-                logic_tx = []
-                if isinstance(logic_data, dict):
-                    tx = logic_data.get("transactions_top")
-                    if isinstance(tx, list):
-                        for item in tx[:15]:
-                            if isinstance(item, dict):
-                                logic_tx.append(item)
-                if not logic_tx and self.mcp_client and app:
-                    try:
-                        tx_res = await self.mcp_client.invoke_tool("transactions", {"application": app})
-                        tx_obj = None
-                        if isinstance(tx_res, dict):
-                            sc = tx_res.get("structuredContent")
-                            if isinstance(sc, dict) and isinstance(sc.get("content"), str):
-                                tx_obj = _try_json_load(sc["content"])
-                            if tx_obj is None:
-                                content = tx_res.get("content")
-                                if isinstance(content, list) and content:
-                                    first = content[0]
-                                    if isinstance(first, dict) and first.get("type") == "text" and isinstance(first.get("text"), str):
-                                        tx_obj = _try_json_load(first["text"])
-                                elif isinstance(content, str):
-                                    tx_obj = _try_json_load(content)
-                        else:
-                            tx_obj = tx_res
-                        items = tx_obj.get("items") if isinstance(tx_obj, dict) else None
-                        if items is None and isinstance(tx_obj, dict):
-                            for k in ("transactions", "results", "data"):
-                                if isinstance(tx_obj.get(k), list):
-                                    items = tx_obj.get(k)
-                                    break
-                        if isinstance(items, list):
-                            for it in items[:25]:
-                                if isinstance(it, dict):
-                                    row = dict(it)
-                                    if "object_id" not in row:
-                                        for k in ("object_id", "objectId", "id", "transaction_id", "transactionId"):
-                                            if row.get(k) is not None:
-                                                row["object_id"] = row.get(k)
-                                                break
-                                    if "name" not in row:
-                                        for k in ("name", "displayName", "transaction_name"):
-                                            if isinstance(row.get(k), str) and row.get(k).strip():
-                                                row["name"] = row.get(k)
-                                                break
-                                    logic_tx.append(row)
-                                    if len(logic_tx) >= 12:
-                                        break
-                    except Exception:
-                        pass
-                risk_findings = []
-                if isinstance(risk_data, dict):
-                    tf = risk_data.get("top_findings")
-                    if isinstance(tf, list):
-                        for item in tf[:15]:
-                            if isinstance(item, dict):
-                                risk_findings.append(item)
-                if not risk_findings and self.mcp_client and app:
-                    try:
-                        def _decode_tool_payload(res: Any):
-                            obj = None
-                            if isinstance(res, dict):
-                                sc = res.get("structuredContent")
-                                if isinstance(sc, dict) and isinstance(sc.get("content"), str):
-                                    obj = _try_json_load(sc["content"])
-                                if obj is None:
-                                    content = res.get("content")
-                                    if isinstance(content, list) and content:
-                                        first = content[0]
-                                        if isinstance(first, dict) and first.get("type") == "text" and isinstance(first.get("text"), str):
-                                            obj = _try_json_load(first["text"])
-                                    elif isinstance(content, str):
-                                        obj = _try_json_load(content)
-                            else:
-                                obj = res
-                            if isinstance(obj, dict) and isinstance(obj.get("content"), str):
-                                inner = _try_json_load(obj.get("content"))
-                                if inner is not None:
-                                    obj = inner
-                            return obj
-
-                        combined: List[Dict[str, Any]] = []
-                        for nature in ("iso-5055", "structural-flaws", "green-detection-patterns"):
-                            qi_res = await self.mcp_client.invoke_tool("quality_insights", {"application": app, "nature": nature, "page": 1})
-                            qi_obj = _decode_tool_payload(qi_res)
-                            items = None
-                            if isinstance(qi_obj, list):
-                                items = qi_obj
-                            elif isinstance(qi_obj, dict):
-                                for k in ("items", "insights", "results", "data"):
-                                    if isinstance(qi_obj.get(k), list):
-                                        items = qi_obj.get(k)
-                                        break
-                            if isinstance(items, list):
-                                for it in items[:25]:
-                                    if isinstance(it, dict):
-                                        row = dict(it)
-                                        row.setdefault("nature", nature)
-                                        combined.append(row)
-                        for it in combined:
-                            row = dict(it)
-                            if "name" not in row:
-                                for k in ("name", "type", "title", "ruleName"):
-                                    if isinstance(row.get(k), str) and row.get(k).strip():
-                                        row["name"] = row.get(k)
-                                        break
-                            if "count" not in row:
-                                for k in ("count", "occurrences", "occurrence_count", "occurrenceCount"):
-                                    if isinstance(row.get(k), (int, float)):
-                                        row["count"] = int(row.get(k))
-                                        break
-                            risk_findings.append(row)
-                            if len(risk_findings) >= 12:
-                                break
-                    except Exception:
-                        pass
-
-                evidence_ids: List[str] = []
-                for blob in (db_data, logic_data, risk_data):
-                    if blob is not None:
-                        evidence_ids.extend(_flatten_ids(blob))
-                uniq_ids = []
-                seen_ids = set()
-                for i in evidence_ids:
-                    if i in seen_ids:
-                        continue
-                    seen_ids.add(i)
-                    uniq_ids.append(i)
-
-                snapshot_lines = []
-                if isinstance(nb_loc, (int, float)) and int(nb_loc) > 0:
-                    snapshot_lines.append(f"- LoC: {int(nb_loc):,}")
-                if isinstance(nb_elements, (int, float)) and int(nb_elements) > 0:
-                    snapshot_lines.append(f"- Elements: {int(nb_elements):,}")
-                if isinstance(nb_interactions, (int, float)) and int(nb_interactions) > 0:
-                    snapshot_lines.append(f"- Interactions: {int(nb_interactions):,}")
-                if tech_list:
-                    snapshot_lines.append(f"- Technologies: {', '.join(sorted(set(tech_list)))}")
-                snapshot_lines.append(f"- Mainframe tech: {'Detected' if is_mainframe_val else 'Not detected'}")
-
-                arch_md = "Not available from MCP output.\n"
-                if self.mcp_client and app:
-                    try:
-                        def _decode_tool_payload(res: Any):
-                            obj = None
-                            if isinstance(res, dict):
-                                sc = res.get("structuredContent")
-                                if isinstance(sc, dict) and isinstance(sc.get("content"), str):
-                                    obj = _try_json_load(sc["content"])
-                                if obj is None:
-                                    content = res.get("content")
-                                    if isinstance(content, list) and content:
-                                        first = content[0]
-                                        if isinstance(first, dict) and first.get("type") == "text" and isinstance(first.get("text"), str):
-                                            obj = _try_json_load(first["text"])
-                                    elif isinstance(content, str):
-                                        obj = _try_json_load(content)
-                            else:
-                                obj = res
-                            if isinstance(obj, dict) and isinstance(obj.get("content"), str):
-                                inner = _try_json_load(obj.get("content"))
-                                if inner is not None:
-                                    obj = inner
-                            return obj
-
-                        nodes_res = await self.mcp_client.invoke_tool("architectural_graph", {"application": app, "mode": "nodes", "level": "component", "page": 1})
-                        links_res = await self.mcp_client.invoke_tool("architectural_graph", {"application": app, "mode": "links", "level": "component", "page": 1})
-                        nodes_obj = _decode_tool_payload(nodes_res)
-                        links_obj = _decode_tool_payload(links_res)
-
-                        nodes = None
-                        links = None
-                        if isinstance(nodes_obj, dict):
-                            nodes = nodes_obj.get("nodes") if isinstance(nodes_obj.get("nodes"), list) else nodes_obj.get("items")
-                        elif isinstance(nodes_obj, list):
-                            nodes = nodes_obj
-                        if isinstance(links_obj, dict):
-                            links = links_obj.get("links") if isinstance(links_obj.get("links"), list) else links_obj.get("items")
-                        elif isinstance(links_obj, list):
-                            links = links_obj
-
-                        n_nodes = len(nodes) if isinstance(nodes, list) else 0
-                        n_links = len(links) if isinstance(links, list) else 0
-
-                        layers = {}
-                        if isinstance(nodes, list):
-                            for n in nodes[:500]:
-                                if isinstance(n, dict):
-                                    layer = n.get("layer") or n.get("type") or n.get("category") or n.get("group")
-                                    if isinstance(layer, str) and layer:
-                                        layers[layer] = layers.get(layer, 0) + 1
-                        top_layers = sorted(layers.items(), key=lambda x: x[1], reverse=True)[:8]
-                        arch_md = f"- Nodes: {n_nodes:,}\n- Links: {n_links:,}\n"
-                        if top_layers:
-                            arch_md += "- Top node groups:\n" + "\n".join([f"  - {k}: {v:,}" for k, v in top_layers]) + "\n"
-                    except Exception:
-                        arch_md = "Not available from MCP output.\n"
-
-                report = []
-                report.append(f"# Modernization Report — {app}\n")
-                report.append("## 1. Executive Summary\n")
-                report.append(f"- Objective: {params.get('objective', '') or 'Not provided'}\n- Goal: {params.get('goal', '') or 'Not provided'}\n- Strategy: {params.get('strategy', '') or 'Not provided'}\n")
-                report.append("## 2. Application Snapshot\n")
-                report.append("\n".join(snapshot_lines) + "\n")
-                report.append("## 3. Current-State Architecture\n")
-                report.append(arch_md)
-                report.append("## 4. Data Architecture & Hotspots\n")
-                report.append(_md_table(db_tables, ["object_id", "id", "name", "table", "schema", "uses", "usage_count", "shared_count"]))
-                report.append("## 5. Transaction Flows & Coupling\n")
-                report.append(_md_table(logic_tx, ["object_id", "id", "name", "complexity", "nodes", "links", "entrypoints"]))
-                report.append("## 6. Risk & ISO 5055 Findings\n")
-                report.append(_md_table(risk_findings, ["type", "name", "severity", "count", "object_id", "violation_id"]))
-                report.append("## 7. Target Architecture\n")
-                if isinstance(logic_data, dict) and isinstance(logic_data.get("candidate_service_boundaries"), list) and logic_data.get("candidate_service_boundaries"):
-                    csb = logic_data.get("candidate_service_boundaries")
-                    rows = [r for r in csb if isinstance(r, dict)]
-                    report.append(_md_table(rows[:15], ["service", "boundary", "reason", "evidence_ids", "object_id", "id"]))
+                if manager_md:
+                    self.state.mission_report = manager_md + usage_info
                 else:
-                    report.append("Not available from MCP output.\n")
-                report.append("## 8. Migration Plan\n")
-                report.append("- Phase 0: Baseline and evidence capture (stats, ISO 5055, top transactions/tables)\n")
-                if uniq_ids:
-                    report.append(f"- Phase 1: Decompose around highest-coupling flows and clusters (evidence IDs: {', '.join(uniq_ids[:12])})\n")
-                else:
-                    report.append("- Phase 1: Decompose around highest-coupling flows and clusters (evidence IDs: Not available from MCP output)\n")
-                report.append("- Phase 2: Data decomposition for shared tables and CRUD hotspots (use table evidence from Section 4)\n")
-                report.append("- Phase 3: Risk remediation for top ISO 5055/quality findings (use evidence from Section 6)\n")
-                report.append("## 9. Risk Mitigations\n")
-                if risk_findings:
-                    for f in risk_findings[:8]:
-                        fid = f.get("object_id") or f.get("violation_id") or f.get("id") or ""
-                        name = f.get("name") or f.get("type") or "Finding"
-                        report.append(f"- {name}: Mitigate based on CAST evidence {fid if fid else '(ID not available)'}\n")
-                else:
-                    report.append("Not available from MCP output.\n")
-                report.append("## 10. Evidence Appendix\n")
-                if uniq_ids:
-                    report.append("\n".join([f"- {i}" for i in uniq_ids[:200]]) + "\n")
-                else:
-                    report.append("Not available from MCP output.\n")
-
-                self.state.mission_report = "\n".join(report).strip()
-                self.state.validation_report = (risk_data.get("iso5055_summary") if isinstance(risk_data, dict) else "") or "Validation integrated via ISO 5055 evidence."
+                    self.push_update("Warning: Final report generation returned empty string. Falling back to simple summary.")
+                    self.state.mission_report = "Error: Final report could not be generated by the agents." + usage_info
+                
+                self.state.validation_report = "Validation integrated via ISO 5055 evidence."
                     
             except Exception as e:
                 logger.exception("CrewAI execution failed")
@@ -1094,3 +828,4 @@ class ModernizationFlow:
         self.push_update("Finalizing ISO 5055 Validation...")
         await asyncio.sleep(0.5)
         return self.state.validation_report
+

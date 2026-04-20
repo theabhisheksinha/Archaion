@@ -1,29 +1,51 @@
-FROM python:3.12-slim AS builder
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /build
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    python3-pip \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip && python -m pip install --user --no-cache-dir --no-compile -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --no-compile -r requirements.txt
 
-FROM python:3.12-slim
+FROM ubuntu:24.04
 
-WORKDIR /app
-ENV PATH=/root/.local/bin:$PATH
+ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-COPY --from=builder /root/.local /root/.local
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY app/ ./app/
 RUN mkdir -p /app/logs \
-    && find /root/.local -type d -name "__pycache__" -prune -exec rm -rf '{}' + \
-    && find /root/.local -type f -name "*.pyc" -delete \
-    && find /root/.local -type d \( -iname "tests" -o -iname "test" \) -prune -exec rm -rf '{}' +
+    && find /opt/venv -type d -name "__pycache__" -prune -exec rm -rf '{}' + \
+    && find /opt/venv -type f -name "*.pyc" -delete \
+    && find /opt/venv -type d \( -iname "tests" -o -iname "test" \) -prune -exec rm -rf '{}' +
 
 EXPOSE 9999
-CMD ["python", "-m", "uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "9999"]
+CMD ["python3.12", "-m", "uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "9999"]

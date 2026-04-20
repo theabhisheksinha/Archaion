@@ -25,3 +25,9 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# IDE and tools
+.agents/
+.trae/
+.vercel/
+skills-lock.json

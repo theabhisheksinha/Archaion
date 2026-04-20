@@ -1,14 +1,75 @@
 import json
 import asyncio
-from typing import Any, Type, Optional, Dict, Literal
+import uuid
+import logging
+from typing import Any, Type, Optional, Dict, Literal, List
 from pydantic import BaseModel, Field, ConfigDict
 try:
     from crewai.tools import BaseTool
 except Exception:
     from crewai.tools.tool_usage import BaseTool
-import logging
+
+try:
+    from app.backend.redis_manager import redis_client
+except ImportError:
+    redis_client = None
 
 logger = logging.getLogger("archaion.mcp_tools")
+
+def _clean_mcp_payload(payload: Any) -> Any:
+    """Recursively cleans the MCP payload by removing excessive newline chars and structural bloat."""
+    if isinstance(payload, str):
+        # Attempt to parse embedded JSON strings
+        try:
+            parsed = json.loads(payload)
+            return _clean_mcp_payload(parsed)
+        except Exception:
+            return payload.replace("\\n", " ").replace("\n", " ").strip()
+    elif isinstance(payload, dict):
+        # Flatten "structuredContent" if present
+        if "structuredContent" in payload and isinstance(payload["structuredContent"], dict):
+            content = payload["structuredContent"].get("content", {})
+            return _clean_mcp_payload(content)
+        # Flatten single "content" lists or dicts
+        if "content" in payload:
+            content = payload["content"]
+            if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and "text" in content[0]:
+                try:
+                    return _clean_mcp_payload(json.loads(content[0]["text"]))
+                except Exception:
+                    return _clean_mcp_payload(content[0]["text"])
+            return _clean_mcp_payload(content)
+        
+        return {k: _clean_mcp_payload(v) for k, v in payload.items()}
+    elif isinstance(payload, list):
+        return [_clean_mcp_payload(item) for item in payload]
+    return payload
+
+def _generate_summary(tool_name: str, payload: Any, execution_id: str, call_id: str) -> str:
+    """Generates a concise, token-efficient summary for the agent."""
+    if not isinstance(payload, dict):
+        if isinstance(payload, list):
+            return f"Success: Fetched {len(payload)} items from {tool_name}. Full data saved to Redis under key 'execution:{execution_id}:data:{tool_name}:{call_id}'."
+        return f"Success: Executed {tool_name}. Full data saved to Redis under key 'execution:{execution_id}:data:{tool_name}:{call_id}'."
+
+    # Look for lists of items to summarize
+    item_count = 0
+    for key in ["items", "nodes", "links", "tables", "transactions", "results", "data", "insights", "violations", "occurrences"]:
+        if key in payload and isinstance(payload[key], list):
+            item_count = len(payload[key])
+            break
+            
+    summary = f"Success: Executed {tool_name}."
+    if item_count > 0:
+        summary += f" Found {item_count} items."
+    
+    summary += f" Full structured data is safely stored in Redis under key 'execution:{execution_id}:data:{tool_name}:{call_id}'. DO NOT hallucinate details; trust that the final report generator will pull the full details from Redis."
+    
+    # If the payload is extremely small, we can just return it.
+    if len(json.dumps(payload)) < 500:
+        summary += f" Preview: {json.dumps(payload)}"
+        
+    return summary
 
 class MCPToolInput(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -45,7 +106,7 @@ class AdvisorsInput(BaseModel):
 
 class AdvisorOccurrencesInput(BaseModel):
     application: str = Field(description="Application name (required)")
-    id: str = Field(description="ID of the advisor occurrence")
+    advisor_id: str = Field(description="ID of the advisor occurrence (sometimes called just 'id')")
     page: Optional[int] = Field(default=1, description="Page number for paginated results (default: 1)")
 
 class ApplicationDatabaseExplorerInput(BaseModel):
@@ -75,12 +136,12 @@ class ArchitecturalGraphInput(BaseModel):
     page: Optional[int] = Field(default=1, description="Page number for paginated results (default: 1)")
 
 class ApplicationsTransactionsInput(BaseModel):
-    application: str = Field(description="Application name (required)")
+    application: Optional[str] = Field(default=None, description="Application name (optional, will be auto-filled if missing)")
     filters: Optional[str] = Field(default=None, description="Filter transactions")
     page: Optional[int] = Field(default=1, description="Page number for paginated results (default: 1)")
 
 class ApplicationsDataGraphsInput(BaseModel):
-    application: str = Field(description="Application name (required)")
+    application: Optional[str] = Field(default=None, description="Application name (optional, will be auto-filled if missing)")
     filters: Optional[str] = Field(default=None, description="Filter data graphs")
     page: Optional[int] = Field(default=1, description="Page number for paginated results (default: 1)")
 
@@ -127,6 +188,7 @@ class MCPToolWrapper(BaseTool):
     mcp_client: Any = Field(exclude=True)
     loop: Any = Field(exclude=True)
     default_application: Optional[str] = Field(default=None, exclude=True)
+    execution_id: Optional[str] = Field(default=None, exclude=True)
 
     def _run(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
         try:
@@ -152,9 +214,25 @@ class MCPToolWrapper(BaseTool):
                 "applications_quality_insights",
                 "inter_app_detailed_dependencies",
                 "inter_applications_dependencies",
+                "applications_transactions",
+                "applications_data_graphs",
             }
             if self.name not in no_app_tools:
                 payload["application"] = self.default_application
+
+        # Handle specific parameter name mismatches for advisor_occurrences
+        if self.name == "advisor_occurrences":
+            if "advisor_id" in payload and "id" not in payload:
+                payload["id"] = payload.pop("advisor_id")
+            elif "id" in payload and "advisor_id" not in payload:
+                pass # Already has id
+                
+        # Handle transaction_details expecting a single string but receiving a list
+        if self.name == "transaction_details" and "id" in payload:
+            if isinstance(payload["id"], list) and len(payload["id"]) > 0:
+                # Log a warning and just take the first ID, as the tool only supports one string
+                logger.warning(f"transaction_details expected string for 'id', got list. Using first element: {payload['id'][0]}")
+                payload["id"] = str(payload["id"][0])
 
         try:
             # Execute the async method synchronously using the provided event loop
@@ -163,6 +241,22 @@ class MCPToolWrapper(BaseTool):
                 self.loop
             )
             res = future.result(timeout=30)
+            
+            # If execution_id is provided, clean and store it in Redis
+            if self.execution_id and redis_client:
+                call_id = str(uuid.uuid4())[:8]
+                try:
+                    cleaned_res = _clean_mcp_payload(res)
+                    # Use threadsafe coroutine to store the output asynchronously
+                    asyncio.run_coroutine_threadsafe(
+                        redis_client.store_tool_output(self.execution_id, self.name, call_id, cleaned_res),
+                        self.loop
+                    )
+                    return _generate_summary(self.name, cleaned_res, self.execution_id, call_id)
+                except Exception as clean_err:
+                    logger.warning(f"Error cleaning/storing MCP payload: {clean_err}")
+                    return json.dumps(res, indent=2)
+
             return json.dumps(res, indent=2)
         except Exception as e:
             logger.error(f"Error executing MCP tool {self.name}: {e}")
@@ -171,12 +265,47 @@ class MCPToolWrapper(BaseTool):
     async def _arun(self, tool_args: Optional[Any] = None, **kwargs: Any) -> str:
         return self._run(tool_args=tool_args, **kwargs)
 
+class FetchRedisDataInput(BaseModel):
+    execution_id: str = Field(description="The execution ID for the current run.")
+    tool_name: Optional[str] = Field(default=None, description="Optional: specific tool name to fetch data for (e.g., 'architectural_graph'). If omitted, fetches all data.")
+
+class FetchRedisDataTool(BaseTool):
+    name: str = "fetch_redis_data"
+    description: str = "Fetches the full structured data stored in Redis by earlier MCP tool executions. Use this before writing the final synthesis report to get the exact data."
+    args_schema: Type[BaseModel] = FetchRedisDataInput
+    
+    loop: Any = Field(exclude=True)
+
+    def _run(self, execution_id: str, tool_name: Optional[str] = None, **kwargs: Any) -> str:
+        if not redis_client:
+            return "Redis client is not available."
+        try:
+            if tool_name:
+                # Fetch specific tool's data
+                future = asyncio.run_coroutine_threadsafe(
+                    redis_client.get_all_execution_data(execution_id), 
+                    self.loop
+                )
+                all_data = future.result(timeout=30)
+                return json.dumps({tool_name: all_data.get(tool_name, [])}, indent=2)
+            else:
+                # Fetch all
+                future = asyncio.run_coroutine_threadsafe(
+                    redis_client.get_all_execution_data(execution_id), 
+                    self.loop
+                )
+                all_data = future.result(timeout=30)
+                return json.dumps(all_data, indent=2)
+        except Exception as e:
+            return f"Error fetching Redis data: {str(e)}"
+
 def create_mcp_tool(
     tool_name: str,
     tool_description: str,
     mcp_client: Any,
     loop: Any,
     default_application: Optional[str] = None,
+    execution_id: Optional[str] = None,
 ) -> MCPToolWrapper:
     """Factory to create a CrewAI BaseTool wrapper for a specific MCP tool."""
     schema = _SCHEMA_MAP.get(tool_name, MCPToolInput)
@@ -187,4 +316,5 @@ def create_mcp_tool(
         mcp_client=mcp_client,
         loop=loop,
         default_application=default_application,
+        execution_id=execution_id,
     )

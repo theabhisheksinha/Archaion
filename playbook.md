@@ -13,7 +13,7 @@ Welcome to the internal developer guide for the Archaion Analyzer. This document
 
 ## 🏛 Architecture Overview
 
-Archaion is designed as a **Stateless, Standalone Monolith** running entirely on Python. It securely bridges the gap between external code intelligence (CAST MCP) and generative artificial intelligence (LLMs) without requiring a database.
+Archaion is designed as a **Stateless, Standalone Monolith** running entirely on Python. It securely bridges the gap between external code intelligence (CAST MCP) and generative artificial intelligence (LLMs).
 
 ### System Architecture Diagram
 
@@ -30,7 +30,9 @@ graph TD
     subgraph Backend ["Backend (FastAPI - Port 9999)"]
         API["REST API (main.py)"]
         Static["StaticFiles Server"]
+        Docx["DOCX Generator (document_generator.py)"]
         API --- Static
+        API --- Docx
     end
 
     subgraph AIEngine ["AI Flow Engine (CrewAI)"]
@@ -40,6 +42,12 @@ graph TD
         Flow --- Agents
         Flow --- Tasks
     end
+    
+    subgraph Persistence ["Data Layer"]
+        Redis["Redis Server (or In-Memory Fallback)"]
+        MCP_Wrapper["Smart Interceptors (mcp_tools.py)"]
+        MCP_Wrapper <-->|"Cache Large Payloads"| Redis
+    end
 
     subgraph External ["External Services"]
         MCP["CAST MCP Server"]
@@ -47,10 +55,11 @@ graph TD
     end
 
     %% Connections
-    JS -- "HTTP GET/POST\n(x-mcp-url, x-api-key headers)" --> API
+    JS -- "HTTP GET/POST\n(Headers)" --> API
     API -- "HTTP JSON-RPC" --> MCP
     API -- "Triggers" --> Flow
-    Flow -- "Prompts & Responses" --> LLM
+    Flow -- "Prompts" --> LLM
+    Flow <--> MCP_Wrapper
 ```
 
 ---
@@ -58,172 +67,41 @@ graph TD
 ## 🧩 Detailed Component Breakdown
 
 ### 1. Frontend (`app/frontend/`)
-The frontend is built using standard HTML, CSS (featuring a modern Glassmorphism design), and Vanilla JavaScript. 
-- **`index.html` & `style.css`**: Defines the user interface. It is completely decoupled from build tools (no Webpack, no React). 
-- **`main.js`**: Handles all dynamic user interactions. 
-- **State Management**: The frontend is responsible for security. It uses `localStorage` to securely save the user's CAST API keys and LLM keys locally in the browser.
+- **`index.html` & `style.css`**: Defines the user interface using a Glassmorphism design.
+- **`main.js`**: Handles dynamic user interactions. Normalizes LLM-generated HTML (like `<strong>` tags) back to Markdown and renders robust HTML tables.
+- **State Management**: Uses `localStorage` to securely save the user's CAST API keys and LLM keys locally in the browser.
 
 ### 2. Backend (`app/backend/`)
-The backend is a high-performance **FastAPI** server running on port `9999`.
-- **`main.py`**: Acts as the central router. It mounts the frontend files to the root `/` path using `StaticFiles`, meaning no separate frontend server is required.
-- **Stateless Execution**: The backend receives credentials via HTTP headers (`x-api-key`, `x-mcp-url`) and JSON payloads from the frontend. It holds no persistent state.
+- **`main.py`**: Acts as the central router. Mounts the frontend using `StaticFiles`.
+- **`redis_manager.py`**: Manages async Redis connections. It includes an **In-Memory Fallback** (`_fallback_store` dict) so the application can run perfectly on local development machines without a Dockerized Redis instance.
 
-### 3. AI Flow Engine (`app/flows/` & `app/agents/`)
-This is the "brain" of Archaion, orchestrating the autonomous analysis.
-- **`modernization_flow.py`**: A wrapper that initializes a **CrewAI** multi-agent system. It takes the application DNA and the user's mission parameters to construct a dynamic workflow.
-- **`app/agents/config/`**: Contains the YAML definitions that dictate the strict behavior of the AI.
-  - `agents.yaml`: Defines the `micro2mono_agent` (architect) and the `validator_agent` (quality gatekeeper).
-  - `tasks.yaml`: Defines exactly what the agents must accomplish (decomposition and ISO 5055 validation).
-- **Dynamic LLM Routing**: Depending on what the user selects in the UI (e.g., OpenAI vs Gemini), this engine dynamically configures the `litellm` router on the fly to process the prompts.
-
-### 4. Integration (CAST MCP)
-The backend acts as an HTTP client connecting to a remote CAST Imaging Model Context Protocol (MCP) server. The backend retrieves the application list (`/applications`), detailed architectural metrics (`/dna`), and structural flaws (`iso-5055-flaws`) on behalf of the AI agents.
-
----
-
-## 🔄 Data Flow Example
-
-1. The user opens `http://localhost:9999`.
-2. The browser loads `index.html` and `main.js`.
-3. The JavaScript fetches the user's stored keys from `localStorage`.
-4. `main.js` sends an HTTP GET request to the backend (`/applications`), passing the user's CAST MCP URL and API key inside the HTTP headers (`x-mcp-url` and `x-api-key`).
-5. The Python FastAPI backend receives the request, reads the headers, and securely forwards the request to the CAST MCP Server.
-6. The CAST MCP Server returns a deeply nested JSON string.
-7. The Python backend safely sanitizes the string and passes it back to the frontend.
-8. The frontend parses the JSON and populates the user interface dynamically.
+### 3. AI Flow Engine (`app/flows/`, `app/agents/`, `app/tools/`)
+- **`modernization_flow.py`**: A wrapper that initializes a **CrewAI** multi-agent system. It assigns a unique UUID (`execution_id`) to every run to namespace data. It extracts token usage metrics (`usage_metrics`) and appends them to the final report.
+- **`app/agents/config/`**: YAML definitions for roles (e.g., `architecture_analyst`) and tasks (e.g., `synthesis_report_task`).
+- **Smart Interceptors (`app/tools/mcp_tools.py`)**: To prevent LLM context window blowouts from massive CAST MCP JSON payloads, these Pydantic-validated tool wrappers intercept the response, store the heavy JSON in Redis, and return a tiny, token-efficient summary to the LLM.
+- **DOCX Generator (`app/tools/document_generator.py`)**: Converts the final LLM Markdown report into a native Microsoft Word document. It safely parses tables, headers, bold text, and code snippets into native `python-docx` XML elements, preventing MS Word crashes.
 
 ---
 
 ## 🛠 Troubleshooting Common Issues
 
-### 1. "Failed to fetch" or Blank Screen
-- **Issue**: The frontend cannot reach the backend.
-- **Solution**: Ensure you are running the application using `uvicorn app.backend.main:app --host 0.0.0.0 --port 9999` (or using Docker). Archaion runs entirely on port `9999`.
+### 1. MS Word says "Word experienced an error trying to open the file"
+- **Issue**: This happens if the DOCX generator creates a table with 0 columns, which corrupts the Word XML.
+- **Fix**: This was fixed in v2.1.0 by strictly enforcing column counts and sanitizing invisible control characters (`\x00-\x1f`) in `document_generator.py`. Ensure you are running the latest version.
 
 ### 2. "Port 9999 already in use"
-- **Issue**: Another application (or an old crashed Archaion server) is still running in the background.
-- **Solution (Windows)**:
-  1. Open PowerShell.
-  2. Find the hidden process: `netstat -ano | findstr :9999`
-  3. Look at the last number on the line (the PID).
-  4. Kill it: `taskkill /F /PID <PID_NUMBER>`
-- **Solution (Mac/Linux)**:
-  1. Find the process: `lsof -i :9999`
-  2. Kill it: `kill -9 <PID_NUMBER>`
+- **Solution (Windows)**: `netstat -ano | findstr :9999`, then `Stop-Process -Id <PID> -Force` (PowerShell) or `taskkill /F /PID <PID_NUMBER>` (CMD).
+- **Solution (Mac/Linux)**: `lsof -i :9999`, then `kill -9 <PID_NUMBER>`.
 
-### 3. "No module named 'fastapi'"
-- **Issue**: You are not running the application inside the virtual environment where the dependencies were installed.
-- **Solution**: Make sure you have activated your virtual environment (`.\venv\Scripts\Activate.ps1` on Windows or `source venv/bin/activate` on Mac/Linux) before running the python command.
+### 3. Terminal Warnings: `pkg_resources is deprecated` or `Mixing V1 and V2 models`
+- **Issue**: CrewAI v0.30.11 uses older Langchain/Pydantic V1 internals alongside your Pydantic V2 installation.
+- **Solution**: These are harmless `DeprecationWarning`s and do not affect the application. **Do not upgrade CrewAI** to v0.100+, as it introduces breaking changes to the `Task` and `Agent` classes that will break the YAML parsing architecture.
 
-### 4. Application List is Empty but No Errors Show
-- **Issue**: The CAST MCP credentials entered in the Settings UI are incorrect.
-- **Solution**: Click the "⚙" button in the UI. Ensure the URL is correct (e.g., `https://presales-in.castsoftware.com/mcp`) and that there are no trailing slashes or hidden spaces in your API Key.
-
-### 5. LLM Call Fails during "Initialize Agents"
-- **Issue**: The selected LLM Provider and API key combination is invalid.
-- **Solution**: Open the Settings UI. If you chose "OpenAI", ensure you pasted an OpenAI key (starting with `sk-...`). If you chose "Google Gemini", ensure it is a valid Gemini key. 
+### 4. "No module named 'fastapi'" or "No module named 'crewai'"
+- **Issue**: You are not running the application inside the virtual environment.
+- **Solution**: Always activate your virtual environment (`.\.venv\Scripts\activate` on Windows) before running `python -m uvicorn`.
 
 ---
 
-## 🔐 Using Environment Variables (Optional)
-
-Archaion defaults to taking credentials securely from the UI. However, if you prefer using environment variables (e.g., for headless deployments or Docker overrides):
-1. Copy `.env.example` to `.env`.
-2. Fill in your default keys (e.g., `CAST_X_API_KEY`, `OPENROUTER_API_KEY`).
-3. Start the application locally or via `docker-compose up`. The app will automatically fall back to these `.env` values if the user leaves the UI Settings blank.
-
----
-
-## 🐳 Docker Image Overview
-
-### What the Docker Image Contains
-The Docker image is a single-container deployment of Archaion:
-- **FastAPI backend** serving API endpoints and the static frontend from `/`
-- **Frontend assets** copied into the image under `app/frontend/`
-- **Uvicorn** as the process entrypoint
-- **No database** and no persistent storage
-
-The application listens on **port 9999** inside the container.
-
-### How Credentials Work in Docker
-Archaion supports two sources of configuration:
-- **Primary (recommended): UI Settings in the browser** (stored in browser `localStorage`, sent to backend via headers/payload)
-- **Fallback: environment variables** (for headless usage, automation, or default values)
-
-UI always takes priority if values are provided.
-
-### Run from the Published Image (Docker Hub)
-```bash
-docker pull theabhisheksinha/archaion-analyzer:latest
-docker run --rm -p 9999:9999 --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
-```
-
-### Run with `.env` Fallback Defaults
-```bash
-docker run --rm -p 9999:9999 --env-file .env --name archaion-analyzer theabhisheksinha/archaion-analyzer:latest
-```
-
-### Run via Docker Compose (Source Repository)
-This repository ships a `docker-compose.yml` that:
-- Maps host port `9999` → container port `9999`
-- Loads optional defaults from `.env` via `env_file`
-- Enables Docker-native log rotation
-
-Start:
-```bash
-docker-compose up --build -d
-```
-
-Stop:
-```bash
-docker-compose down
-```
-
-### Logs (Best Practice)
-Archaion logs to stdout/stderr. Docker captures these logs.
-- View logs:
-```bash
-docker logs -f archaion-analyzer
-```
-
-The compose file configures Docker log rotation using the `json-file` driver options:
-- `max-size: 10m`
-- `max-file: 3`
-
-This prevents unbounded growth and avoids disk pressure.
-
----
-
-## 🏷️ Docker Tagging Strategy (Publisher Guide)
-
-When publishing to Docker Hub, use immutable version tags and a stable pointer tag:
-- **Immutable release**: `theabhisheksinha/archaion-analyzer:0.1.0`
-- **Stable pointer**: `theabhisheksinha/archaion-analyzer:latest`
-- **Optional rolling minor**: `theabhisheksinha/archaion-analyzer:0.1`
-
-Example publish commands:
-```bash
-docker build -t theabhisheksinha/archaion-analyzer:0.1.0 .
-docker push theabhisheksinha/archaion-analyzer:0.1.0
-
-docker tag theabhisheksinha/archaion-analyzer:0.1.0 theabhisheksinha/archaion-analyzer:latest
-docker push theabhisheksinha/archaion-analyzer:latest
-```
-
-## 📦 File Structure
-
-```text
-Archaion/
-├── app/
-│   ├── agents/          
-│   │   └── config/      # YAML definitions for CrewAI roles and tasks
-│   ├── backend/         # FastAPI server logic (main.py)
-│   ├── flows/           # CrewAI/LiteLLM execution states
-│   ├── frontend/        # HTML, CSS, JS static files
-│   └── tools/           # Custom Python utilities (like the DOCX generator)
-├── docker-compose.yml   # Docker Compose orchestration
-├── Dockerfile           # Docker container build instructions
-├── LICENSE.md           # Legal usage requirements
-├── README.md            # User-facing installation guide
-└── requirements.txt     # Python package dependencies
-```
+## 🐳 Docker Deployment
+Archaion uses a multi-stage build on `ubuntu:24.04`. It creates a clean Python virtual environment at `/opt/venv` and runs the Uvicorn server on port 9999. The `docker-compose.yml` wires the application container alongside an `alpine-redis` container for persistent caching.

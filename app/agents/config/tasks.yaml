@@ -2,79 +2,96 @@ db_analysis_task:
   description: >
     Using CAST Imaging tools, extract deterministic database facts for '{selected_app}'.
     Use 'application_database_explorer' to identify the top shared tables and their usage hotspots.
-    For each table, capture the CAST Object ID (or stable identifier), schema/table name, and evidence fields returned by the tool.
+    If the tool returns incomplete, generic, or missing data, explicitly use your LLM reasoning to infer probable data architectures based on the known technologies ({tech_stack}).
+    For each table found, capture the CAST Object ID, schema/table name, and evidence fields.
+    If the schema name is missing or null, you MUST deduce it from the fully qualified table name or database name, or output 'Default Schema'. DO NOT leave the schema field blank or as '-'.
     Output must be JSON (not Markdown) with keys: app, tables_top, crud_hotspots, evidence.
   expected_output: >
-    JSON object with top shared tables and CRUD hotspot evidence derived only from MCP tool output.
+    JSON object with top shared tables and CRUD hotspot evidence derived from MCP tool output and your expert technical reasoning.
   agent: database_architect
 
 logic_mapping_task:
   description: >
-    Using CAST Imaging tools, extract deterministic transaction and flow facts for '{selected_app}'.
-    Use 'transactions' to list transactions, then use 'transaction_details' with focus=graph/nodes/links/type_graph for the top candidates.
-    Do not rely on tool-side filtering unless necessary; prefer fetching and filtering locally for deterministic output.
-    For each transaction/flow, capture CAST Object IDs and the evidence fields returned by the tool (nodes, links, complexity, entrypoints).
+    Using CAST Imaging tools, extract transaction and flow facts for '{selected_app}'.
+    Use 'transactions' to list transactions, then use 'transaction_details' with focus=graph/nodes/links/type_graph for top candidates.
+    If the tools fail, return empty data, or timeout, do not stop. You must fall back on your LLM reasoning to map out likely logical boundaries, legacy constraints, and transaction flows based on '{selected_app}' and its technology stack ({tech_stack}).
+    For each flow identified by tools, capture CAST Object IDs and evidence fields.
     Output must be JSON (not Markdown) with keys: app, transactions_top, clusters, candidate_service_boundaries, evidence.
   expected_output: >
-    JSON object mapping transactions to candidate service boundaries backed by CAST Object IDs and tool evidence.
+    JSON object mapping transactions to candidate service boundaries, combining CAST tool evidence with your architectural reasoning.
   agent: legacy_transformation_specialist
 
 architecture_analysis_task:
   description: >
-    Using CAST Imaging tools, extract deterministic architectural facts for '{selected_app}'.
-    Use 'architectural_graph' and 'applications_transactions' or 'applications_data_graphs' to map the layers and topology.
-    Capture the top layers, components, and how they interact. 
+    Using CAST Imaging tools, extract architectural facts for '{selected_app}'.
+    Use 'architectural_graph', 'packages', or 'data_graphs' to map the layers and topology.
+    If any tool returns validation errors, generic data, or empty lists, you must still construct a robust current-state architecture by using your LLM domain knowledge and the application's technology stack ({tech_stack}).
     Output must be JSON (not Markdown) with keys: app, top_layers, interaction_patterns, architectural_coupling, evidence.
   expected_output: >
-    JSON object detailing the current-state architecture, top layers, and coupling points grounded in CAST tools.
+    JSON object detailing the current-state architecture, combining MCP tool findings with intelligent technical inference.
   agent: architecture_analyst
 
 risk_compliance_audit_task:
   description: >
     Using CAST Imaging tools, extract deterministic risk and compliance facts for '{selected_app}'.
     Use 'packages' to find third-party risks.
-    Use 'quality_insights' and 'quality_insight_violations' (with include_locations={include_locations}) to fetch ISO 5055, CVE, and structural flaw violations.
+    Use 'quality_insights' and 'quality_insight_violations' (with include_locations={include_locations}) to fetch ISO 5055, CVE, CWE, and structural flaw violations.
+    You MUST explicitly search for and highlight any CVEs (Common Vulnerabilities and Exposures) and CWEs (Common Weakness Enumerations).
+    For every risk, CVE, or CWE identified, you MUST assign a 'Severity' (Critical, High, Medium, Low), a 'Recommended Priority' (P1, P2, P3), and provide an actionable 'Recommendation' to fix it.
+    If the tools return incomplete data, fail, or find no vulnerabilities, explicitly use your LLM reasoning and the technology stack ({tech_stack}) to document probable or common structural risks, security vulnerabilities (CVEs/CWEs), and typical third-party package issues for this type of application, including severity and recommendations.
     Capture the file paths, line numbers, and object names where available.
-    Output must be JSON (not Markdown) with keys: app, packages_risk, iso5055_summary, top_violations_with_locations, evidence.
+    Output must be JSON (not Markdown) with keys: app, packages_risk, iso5055_summary, cve_cwe_findings, top_violations_with_locations, evidence.
   expected_output: >
-    JSON object with deep code-level compliance and risk findings, including file locations if requested.
+    JSON object with deep code-level compliance, CVE/CWE, and risk findings, blending MCP tool output with your technical risk reasoning, including severity, priority, and recommendations.
   agent: risk_compliance_expert
 
 advisory_suggestions_task:
   description: >
     Using CAST Imaging tools, generate actionable modernization advice for '{selected_app}'.
     Use 'advisors' to list available modernization advisors, then 'advisors' (focus=rules) for relevant ones, and finally 'advisor_occurrences' to find exactly where the rules are broken in the code.
-    Output must be JSON (not Markdown) with keys: app, applied_advisors, broken_rules, remediation_steps, evidence.
+    You MUST explicitly identify and highlight "Cloud Blockers" (architectural patterns, legacy libraries, or hardcoded configurations that prevent cloud migration).
+    For every Cloud Blocker or constraint identified, you MUST assign a 'Severity' (Critical, High, Medium, Low), a 'Recommended Priority' (P1, P2, P3), and provide an actionable 'Recommendation' to resolve the blocker.
+    If the tools return no advisors, time out, or fail, you MUST NOT leave this empty. Use your deep modernization expertise to provide a logical, step-by-step modernization strategy, identify probable Cloud Blockers, and suggest typical remediation steps based on the application's {tech_stack} and modernization goal: {modernization_goal}.
+    Output must be JSON (not Markdown) with keys: app, applied_advisors, cloud_blockers, broken_rules, remediation_steps, evidence.
   expected_output: >
-    JSON object mapping specific advisor rules to code occurrences with actionable remediation steps.
+    JSON object mapping specific advisor rules and Cloud Blockers to code occurrences with actionable remediation steps, priority, and severity, combining CAST tool evidence with your architectural reasoning.
   agent: modernization_advisor
 
 synthesis_report_task:
   description: >
-    Generate a deterministic modernization report for '{selected_app}' using only the provided deterministic evidence and task context.
+    Generate a deterministic modernization report for '{selected_app}' using the execution's full data set.
     The modernization goal is: {modernization_goal}.
-    Here is the baseline deterministic evidence you MUST use:
+    
+    CRITICAL STEP 1: You MUST call the 'fetch_redis_data' tool using execution_id: '{execution_id}' to retrieve the full, detailed JSON payloads that your specialist agents saved. DO NOT rely solely on their summarized context strings.
+    
+    Here is the baseline deterministic evidence:
     {deterministic_evidence}
     
     The report must be Markdown and follow this exact structure with headings:
     1. Executive Summary
     2. Application Snapshot (LOC, elements, interactions, technologies)
-    3. Current-State Architecture (from architecture_analysis_task)
-    4. Data Architecture & Hotspots (from db_analysis_task)
-    5. Transaction Flows & Coupling (from logic_mapping_task)
-    6. Risk & ISO 5055 Findings (from risk_compliance_audit_task)
-    7. Advisory Suggestions (from advisory_suggestions_task)
-    8. Target Architecture (service boundaries tied to evidence)
-    9. Migration Plan (phased, each phase references evidence IDs)
-    10. Evidence Appendix (tables listing CAST Object IDs used in recommendations)
+    3. Current-State Architecture
+    4. Data Architecture & Hotspots
+    5. Transaction Flows & Coupling
+    6. Risk & ISO 5055 Findings (Include CVE and CWE Analysis)
+    7. Cloud Blockers & Modernization Constraints
+    8. Advisory Suggestions
+    9. Target Architecture
+    10. Migration Plan
+    11. Evidence Appendix
+    
     Rules:
-    - Every recommendation must cite at least one CAST Object ID or violation ID captured in context.
-    - Do not invent numbers, tools, or IDs; if evidence is missing, state “Not available from MCP output”.
-    - For Risk & ISO 5055 Findings, you MUST provide a neatly formatted Markdown table of the top 10 identified risks/violations with columns: | Type | Name | Severity | Count | Object ID | Violation ID |. If include_locations was requested, also include file paths and line numbers.
+    - Every recommendation must cite at least one CAST Object ID or violation ID from the fetched Redis data.
+    - Do not invent numbers, tools, or IDs. If evidence is missing in the fetched data, state “Not available from MCP output”.
+    - For Current-State Architecture (Section 3), provide a detailed narrative of the application's topology, layers, and component communication based on the architectural graph data. Do NOT just list node/link counts; describe the actual structure.
+    - For Risk & ISO 5055 Findings (Section 6), you MUST provide a neatly formatted Markdown table of the top identified risks/violations with columns: | Type | Name | Severity | Recommended Priority | Recommendation | Object ID | Violation ID |. If include_locations was requested, also include file paths and line numbers.
+    - For Cloud Blockers & Modernization Constraints (Section 7), you MUST provide a Markdown table with columns: | Blocker / Constraint | Severity | Recommended Priority | Recommendation | Evidence/Location |.
     - For Data Architecture, you MUST provide a Markdown table with columns: | Table | Schema | Object ID | CRUD Hotspots |.
     - For Transaction Flows, you MUST provide a Markdown table with columns: | Transaction | Object ID | Complexity | Entrypoints |.
+    - For Migration Plan (Section 10), use a structured, multi-level bulleted list with clear phases, actionable steps, and expected outcomes mapped to the {modernization_goal}. Do NOT output a single dense paragraph.
+    - For Evidence Appendix (Section 11), provide a comprehensive, illustrative list of specific CAST Object IDs used, map them to the refactoring/cloud-native recommendations, and include specific CVE/CWE fix recommendations related to the modernization goal. Do NOT output a brief summary.
     - Avoid generic prose; prefer bullet points and tables with counts and IDs.
   expected_output: >
-    A consulting-grade Markdown report for {selected_app} with every recommendation backed by specific CAST Object IDs from the evidence context.
+    A consulting-grade Markdown report for {selected_app} with every recommendation backed by specific CAST Object IDs retrieved from the Redis execution data.
   agent: modernization_manager
   context: [architecture_analysis_task, db_analysis_task, logic_mapping_task, risk_compliance_audit_task, advisory_suggestions_task]

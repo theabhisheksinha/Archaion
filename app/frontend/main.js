@@ -1015,39 +1015,62 @@ function displayReport(report, jobId) {
     let htmlParts = [];
 
     const flushParagraph = (buf) => {
-        const text = buf.join("\n").trim();
-        if (!text) return;
-        let h = text;
-        // code fences
-        h = h.replace(/```([\s\S]*?)```/g, '<pre style="background:#0b0d22; padding:1rem; border-radius:6px; overflow-x:auto;"><code>$1</code></pre>');
-        // inline code
-        h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1c3b; padding:0.2rem 0.4rem; border-radius:3px; font-family:monospace; color:#00c4cc;">$1</code>');
-        // headers
-        h = h.replace(/^### (.*)$/gm, '<h3>$1</h3>');
-        h = h.replace(/^## (.*)$/gm, '<h2>$1</h2>');
-        h = h.replace(/^# (.*)$/gm, '<h1>$1</h1>');
-        // bold
-        h = h.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // bullet lists
-        h = h.replace(/^(?:\s*[-*+]\s+.*(?:\n|$))+?/gm, (block) => {
-            const items = block.trim().split(/\n/).map(l => l.replace(/^\s*[-*+]\s+/, '').trim());
-            return `<ul>${items.map(it => `<li>${escapeHtml(it)}</li>`).join('')}</ul>`;
-        });
-        htmlParts.push(h);
-    };
+          const text = buf.join("\n").trim();
+          if (!text) return;
+          let h = text;
 
-    const renderTable = (rows) => {
-        // Remove alignment row if present (---)
-        if (rows.length > 1 && /^\|\s*:?-{3,}.*\|$/.test(rows[1].trim())) {
-            rows.splice(1, 1);
-        }
-        const toCells = (r) => r.split('|').slice(1, -1).map(c => c.trim());
-        const header = toCells(rows[0]);
-        const body = rows.slice(1).map(toCells);
-        const th = header.map(h => `<th style="background:rgba(0,196,204,0.1); padding:0.8rem; text-transform:none; text-align:left; border-bottom:1px solid var(--glass-border);">${escapeHtml(h || '-')}</th>`).join('');
-        const tr = body.map(r => `<tr>${r.map(c => `<td style="padding:0.8rem; border-bottom:1px solid rgba(255,255,255,0.05);">${escapeHtml(c || '-')}</td>`).join('')}</tr>`).join('');
-        return `<div style="overflow-x:auto; margin:1rem 0;"><table style="width:100%; border-collapse:collapse; border:1px solid var(--glass-border);"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
-    };
+          // Normalize any LLM-generated HTML tags to markdown before escaping
+          h = h.replace(/<\/?strong>/gi, '**');
+          h = h.replace(/<\/?b>/gi, '**');
+
+          // First, escape HTML for safety to prevent raw tags from breaking layout
+          h = escapeHtml(h);
+
+          // code fences
+          h = h.replace(/```([\s\S]*?)```/g, '<pre style="background:#0b0d22; padding:1rem; border-radius:6px; overflow-x:auto;"><code>$1</code></pre>');
+          // inline code
+          h = h.replace(/`([^`]+)`/g, '<code style="background:#1a1c3b; padding:0.2rem 0.4rem; border-radius:3px; font-family:monospace; color:#00c4cc;">$1</code>');
+          // headers
+          h = h.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+          h = h.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+          h = h.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+          // bold
+          h = h.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+          // bullet lists
+          h = h.replace(/^(?:\s*[-*+]\s+.*(?:\n|$))+?/gm, (block) => {
+              const items = block.trim().split(/\n/).map(l => l.replace(/^\s*[-*+]\s+/, '').trim());
+              return `<ul>${items.map(it => `<li>${it}</li>`).join('')}</ul>`;
+          });
+          htmlParts.push(h);
+      };
+
+      const renderTable = (rows) => {
+          // Remove alignment row if present (---)
+          if (rows.length > 1 && /^\|\s*:?-{3,}.*\|$/.test(rows[1].trim())) {
+              rows.splice(1, 1);
+          }
+          const toCells = (r) => r.split('|').slice(1, -1).map(c => {
+              let cell = c.trim();
+              cell = cell.replace(/<\/?strong>/gi, '**');
+              cell = cell.replace(/<\/?b>/gi, '**');
+              cell = escapeHtml(cell);
+              cell = cell.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+              cell = cell.replace(/`([^`]+)`/g, '<code>$1</code>');
+              return cell;
+          });
+          const header = rows[0].split('|').slice(1, -1).map(c => {
+              let cell = c.trim();
+              cell = cell.replace(/<\/?strong>/gi, '**');
+              cell = cell.replace(/<\/?b>/gi, '**');
+              cell = escapeHtml(cell);
+              cell = cell.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+              return cell;
+          });
+          const body = rows.slice(1).map(toCells);
+          const th = header.map(h => `<th style="background:rgba(0,196,204,0.1); padding:0.8rem; text-transform:none; text-align:left; border-bottom:1px solid var(--glass-border);">${h || '-'}</th>`).join('');
+          const tr = body.map(r => `<tr>${r.map(c => `<td style="padding:0.8rem; border-bottom:1px solid rgba(255,255,255,0.05);">${c || '-'}</td>`).join('')}</tr>`).join('');
+          return `<div style="overflow-x:auto; margin:1rem 0;"><table style="width:100%; border-collapse:collapse; border:1px solid var(--glass-border);"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+      };
 
     while (i < lines.length) {
         // detect table block

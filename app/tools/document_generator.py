@@ -2,37 +2,143 @@ import re
 import os
 from docx import Document
 from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
+
+def sanitize_text(text: str) -> str:
+    # Remove control characters that break XML parsing in docx
+    return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
 
 def generate_docx_from_markdown(md_text: str, app_name: str = "UnknownApp") -> io.BytesIO:
     doc = Document()
-    doc.add_heading(f'Modernization Report: {app_name}', 0)
+    
+    # Title styling
+    title = doc.add_heading(f'Modernization Report: {app_name}', 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # A very naive markdown parser for demonstration
-    lines = md_text.split('\n')
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    # Strip wrapping markdown code blocks if LLM included them
+    if md_text.startswith('```markdown'):
+        md_text = md_text[11:].strip()
+    elif md_text.startswith('```'):
+        md_text = md_text[3:].strip()
         
+    if md_text.endswith('```'):
+        md_text = md_text[:-3].strip()
+
+    lines = md_text.split('\n')
+    i = 0
+    
+    def process_inline(paragraph, text):
+        text = sanitize_text(text)
+        # Basic inline bold processing
+        # We also clear out LLM-generated HTML strong tags that might have slipped through
+        text = re.sub(r'<\/?strong>', '**', text, flags=re.IGNORECASE)
+        text = re.sub(r'<\/?b>', '**', text, flags=re.IGNORECASE)
+        
+        parts = re.split(r'(\*\*.*?\*\*|__.*?__)', text)
+        for part in parts:
+            if (part.startswith('**') and part.endswith('**')) or (part.startswith('__') and part.endswith('__')):
+                run = paragraph.add_run(part[2:-2])
+                run.bold = True
+            else:
+                # Add basic code block handling inline
+                code_parts = re.split(r'(`.*?`)', part)
+                for cpart in code_parts:
+                    if cpart.startswith('`') and cpart.endswith('`'):
+                        run = paragraph.add_run(cpart[1:-1])
+                        run.font.name = 'Courier New'
+                    else:
+                        paragraph.add_run(cpart)
+
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if not line:
+            i += 1
+            continue
+            
+        # Headers
         if line.startswith('# '):
-            doc.add_heading(line[2:], level=1)
+            p = doc.add_heading(level=1)
+            process_inline(p, line[2:].strip())
+            i += 1
         elif line.startswith('## '):
-            doc.add_heading(line[3:], level=2)
+            p = doc.add_heading(level=2)
+            process_inline(p, line[3:].strip())
+            i += 1
         elif line.startswith('### '):
-            doc.add_heading(line[4:], level=3)
-        elif line.startswith('- '):
-            doc.add_paragraph(line[2:], style='List Bullet')
+            p = doc.add_heading(level=3)
+            process_inline(p, line[4:].strip())
+            i += 1
+            
+        # Lists
+        elif line.startswith('- ') or line.startswith('* '):
+            p = doc.add_paragraph(style='List Bullet')
+            process_inline(p, line[2:].strip())
+            i += 1
+            
+        # Numbered Lists
+        elif re.match(r'^\d+\.\s', line):
+            p = doc.add_paragraph(style='List Number')
+            content = re.sub(r'^\d+\.\s', '', line).strip()
+            process_inline(p, content)
+            i += 1
+            
+        # Horizontal Rule
+        elif line == '---' or line == '***' or line == '___':
+            p = doc.add_paragraph("_" * 50)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            i += 1
+            
+        # Tables
+        elif line.startswith('|') and line.endswith('|'):
+            # Collect all table lines
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith('|') and lines[i].strip().endswith('|'):
+                table_lines.append(lines[i].strip())
+                i += 1
+                
+            if len(table_lines) >= 2:
+                # Extract headers
+                headers = [col.strip() for col in table_lines[0].strip('|').split('|')]
+                
+                # Check if second line is separator
+                data_start_idx = 1
+                if re.match(r'^\|[\s\-\:]+\|', table_lines[1]):
+                    data_start_idx = 2
+                    
+                table = doc.add_table(rows=1, cols=len(headers))
+                table.style = 'Table Grid'
+                
+                # Add headers
+                hdr_cells = table.rows[0].cells
+                for col_idx, header_text in enumerate(headers):
+                    if col_idx < len(hdr_cells):
+                        process_inline(hdr_cells[col_idx].paragraphs[0], header_text)
+                        
+                # Add data rows
+                for row_line in table_lines[data_start_idx:]:
+                    cols = [col.strip() for col in row_line.strip('|').split('|')]
+                    row_cells = table.add_row().cells
+                    for col_idx, col_text in enumerate(cols):
+                        if col_idx < len(row_cells):
+                            process_inline(row_cells[col_idx].paragraphs[0], col_text)
+            else:
+                p = doc.add_paragraph()
+                process_inline(p, line)
+                i += 1
+                
+        # Blockquotes
+        elif line.startswith('> '):
+            p = doc.add_paragraph(style='Quote')
+            process_inline(p, line[2:].strip())
+            i += 1
+            
+        # Regular paragraph
         else:
             p = doc.add_paragraph()
-            # Handle basic bold
-            parts = re.split(r'(\*\*.*?\*\*)', line)
-            for part in parts:
-                if part.startswith('**') and part.endswith('**'):
-                    run = p.add_run(part[2:-2])
-                    run.bold = True
-                else:
-                    p.add_run(part)
+            process_inline(p, line)
+            i += 1
 
     # ISO 5055 explicitly
     if "ISO 5055" not in md_text:

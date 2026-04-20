@@ -1,6 +1,14 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: archaion-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+
   archaion-analyzer:
     build: .
     container_name: archaion-analyzer
@@ -8,6 +16,10 @@ services:
       - "9999:9999"
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     logging:
       driver: "json-file"
       options:

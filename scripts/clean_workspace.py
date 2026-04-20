@@ -53,26 +53,34 @@ def remove_dir(p: Path):
     except Exception:
         pass
 
+def iter_dirs_pruned(base: Path):
+    for root, dirs, files in os.walk(base, topdown=True):
+        # prune excluded dirs in-place
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and ".venv" not in d.lower()]
+        yield Path(root), [Path(root) / f for f in files]
+
 def clean_logs_and_caches():
     # 1) Project-known logs directory
-    logs_dir = ROOT / "logs"
-    if logs_dir.exists() and logs_dir.is_dir():
-        for child in logs_dir.rglob("*"):
-            if child.is_file():
-                remove_file(child)
+    for logs_dir in [ROOT / "logs", ROOT.parent / "logs"]:
+        if logs_dir.exists() and logs_dir.is_dir():
+            for child in logs_dir.rglob("*"):
+                if child.is_file():
+                    remove_file(child)
 
-    # 2) Files by patterns (excluding .venv and node_modules)
+    # 2) Files by patterns (excluding pruned dirs)
     for base in [ROOT, ROOT.parent]:
-        for pattern in PATTERNS_FILES:
-            for p in base.rglob(pattern):
-                if p.is_file() and not should_skip_dir(p.parent):
-                    remove_file(p)
+        for root, files in iter_dirs_pruned(base):
+            for f in files:
+                if any(f.match(pat) for pat in PATTERNS_FILES):
+                    remove_file(f)
 
-    # 3) Cache directories
+    # 3) Cache directories (pruned walk)
     for base in [ROOT, ROOT.parent]:
-        for d in base.rglob("*"):
-            if d.is_dir() and d.name in DIR_NAMES and not should_skip_dir(d):
-                remove_dir(d)
+        for root, _files in iter_dirs_pruned(base):
+            for dname in DIR_NAMES:
+                d = root / dname
+                if d.exists() and d.is_dir():
+                    remove_dir(d)
 
 if __name__ == "__main__":
     clean_logs_and_caches()

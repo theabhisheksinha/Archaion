@@ -7,7 +7,7 @@ from crewai import Agent, Crew, Task
 from langchain_openai import ChatOpenAI
 import yaml
 
-from app.tools.mcp_tools import create_mcp_tool
+from app.tools.mcp_tools import create_mcp_tool, FetchRedisDataTool
 from app.tools.searchapi_tool import SearchApiTool
 
 logger = logging.getLogger("archaion.crew")
@@ -34,6 +34,7 @@ class ModernizationCrew:
         llm_model: Optional[str] = None,
         enable_per_agent_models: bool = True,
         app_name: Optional[str] = None,
+        execution_id: Optional[str] = None,
         mcp_client: Any = None,
         loop: Any = None,
         step_callback: Any = None,
@@ -45,6 +46,7 @@ class ModernizationCrew:
         self.llm_provider = llm_provider
         self.llm_key = llm_key
         self.app_name = app_name
+        self.execution_id = execution_id
         self.search_api_key = search_api_key or os.getenv("SEARCHAPI_API_KEY", "")
         self._llm_cache: Dict[str, Any] = {}
         self.model_overrides: Dict[str, str] = {}
@@ -131,7 +133,14 @@ class ModernizationCrew:
     def _get_tool(self, name: str, desc: str):
         if not self.mcp_client or not self.loop:
             return None
-        return create_mcp_tool(name, desc, self.mcp_client, self.loop, default_application=self.app_name)
+        return create_mcp_tool(
+            name,
+            desc,
+            self.mcp_client,
+            self.loop,
+            default_application=self.app_name,
+            execution_id=self.execution_id
+        )
 
     def portfolio_specialist(self) -> Agent:
         tool = self._get_tool("applications", "List all available applications available in CAST Imaging.")
@@ -169,6 +178,11 @@ class ModernizationCrew:
             tools.append(self._get_tool("architectural_graph_focus", "Get architecture focused on specific components for exploring architecture around key areas."))
             tools.append(self._get_tool("architectural_graph", "Visualize application architecture (nodes/links) at layer/component level."))
             tools.append(self._get_tool("stats", "Get basic statistics for an application including size, complexity, and technology metrics."))
+        
+        # Add the Redis fetch tool so it can retrieve the full intermediate data
+        if self.loop:
+            tools.append(FetchRedisDataTool(loop=self.loop))
+
         # Attach Serper only to manager
         # Attach searchapi.io tool (returns warnings when key is missing; never errors)
         tools.append(SearchApiTool(api_key=self.search_api_key))
@@ -222,8 +236,8 @@ class ModernizationCrew:
         tools = []
         if self.mcp_client:
             tools.append(self._get_tool("architectural_graph", "Visualize application architecture (nodes/links) at layer/component level."))
-            tools.append(self._get_tool("applications_transactions", "Get transactions for the application."))
-            tools.append(self._get_tool("applications_data_graphs", "Get data entity interaction networks."))
+            tools.append(self._get_tool("packages", "Get all packages/namespaces in an application."))
+            tools.append(self._get_tool("data_graphs", "Get application data graphs for detailed data flow mapping."))
         return Agent(
             role=self._AGENTS["architecture_analyst"]["role"],
             goal=self._AGENTS["architecture_analyst"]["goal"],
@@ -232,7 +246,7 @@ class ModernizationCrew:
             tools=tools,
             verbose=True,
             allow_delegation=False,
-            max_iter=6,
+            max_iter=8,
         )
 
     def risk_compliance_expert(self) -> Agent:
@@ -356,10 +370,10 @@ class ModernizationCrew:
 
         base_kwargs: Dict[str, Any] = {"agents": agents, "tasks": tasks, "verbose": True}
 
-        # Best-effort hierarchical process + manager_llm + step_callback, but stay compatible with older CrewAI.
+        # Force sequential process to ensure deterministic execution of tasks by their assigned agents.
         try:
             from crewai import Process  # type: ignore
-            base_kwargs["process"] = getattr(Process, "hierarchical", getattr(Process, "sequential", None))
+            base_kwargs["process"] = Process.sequential
         except Exception:
             pass
 

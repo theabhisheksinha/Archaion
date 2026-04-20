@@ -163,7 +163,7 @@ class AnalyzeRequest(BaseModel):
 
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from app.tools.docx_postprocess import generate as generate_docx_from_markdown
+from app.tools.document_generator import generate_docx_from_markdown
 
 # In-memory store for demo
 flow_states = {}
