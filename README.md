@@ -4,7 +4,7 @@
 
 # Archaion Analyzer
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue) [![Changelog](https://img.shields.io/badge/CHANGELOG-md-lightgrey)](./CHANGELOG.md) ![Mode](https://img.shields.io/badge/default-Deterministic-success) ![LLM](https://img.shields.io/badge/LLM-Optional-yellow) ![MCP](https://img.shields.io/badge/CAST%20MCP-%E2%89%A5%20v3-8A2BE2) [![License](https://img.shields.io/badge/license-Custom-important)](./LICENSE.md) ![Port](https://img.shields.io/badge/port-9999-informational)
+![Version](https://img.shields.io/badge/version-2.0.0-blue) [![Changelog](https://img.shields.io/badge/CHANGELOG-md-lightgrey)](./CHANGELOG.md) ![Mode](https://img.shields.io/badge/default-Deterministic-success) ![LLM](https://img.shields.io/badge/LLM-Optional-yellow) ![MCP](https://img.shields.io/badge/CAST%20MCP-%E2%89%A5%20v3-8A2BE2) [![License](https://img.shields.io/badge/license-Custom-important)](./LICENSE.md) ![Port](https://img.shields.io/badge/port-9999-informational)
 
 **Archaion Analyzer** is an application modernization analyzer powered by the **CAST Imaging MCP (Model Context Protocol)**. It evaluates legacy software using deterministic facts pulled from CAST Imaging tools (stats, transactions, data graphs, architecture, and quality insights). It can optionally orchestrate **LLMs (OpenAI, Google Gemini, OpenRouter, Azure AI)** via CrewAI, minimizing token usage by utilizing a Redis-backed intermediate data layer to keep outputs grounded in MCP evidence.
 

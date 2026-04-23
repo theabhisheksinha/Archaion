@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. This file summarizes functional updates to the UI, backend flow, CrewAI agents, and documentation.
 
-## [2.1.0] - 2026-04-20
+## [2.0.0] - 2026-04-20
 
 ### Added
 - **Redis & In-Memory Persistence Layer**: Implemented a caching layer (`app/backend/redis_manager.py`) to intercept massive MCP JSON payloads. This prevents LLM context window blowouts. Includes an in-memory fallback `_fallback_store` so the app runs locally without requiring a Redis server.
@@ -22,7 +22,7 @@ All notable changes to this project are documented here. This file summarizes fu
 
 ---
 
-## [2.0.0] - 2026-04-10
+### Previous 2.0.0 Updates (2026-04-10)
 - Evidence-first pipeline even with LLM enabled: backend pre-fetches deterministic CAST evidence.
 - Mission Command Center toggles (Enable AI Generative Agents, Include Detailed Locations).
 - Strict Pydantic schemas for MCP tools in the CrewAI adapter.
